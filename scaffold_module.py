@@ -5,6 +5,12 @@ This module converts a watertight boundary mesh into a volumetric tetrahedral
 scaffold using the GMSH Python API. It follows the "merge bypass" strategy:
 export boundary to temporary STL -> merge into GMSH -> define volume -> mesh.
 
+Coordinate integrity (Day 2):
+- Input mesh must be watertight (process=True) for downstream Boolean ops.
+- Smart Inset: scaffold uses scaled boundary; nodes are inverse-scaled back
+  to original CAD coordinates for lattice placement.
+- Bbox mismatch warning when scaffold nodes differ from input bounds > 1e-5.
+
 Outputs are NumPy arrays ready for downstream topology synthesis:
     - nodes: global XYZ coordinates
     - elements: tetrahedral connectivity (4-node indices)
@@ -61,6 +67,7 @@ def _map_tags_to_zero_based_indices(
 def generate_conformal_scaffold(
     mesh: trimesh.Trimesh,
     target_element_size: float,
+    algorithm_3d: int = 10,
 ) -> ScaffoldResult:
     """
     Generate a conformal tetrahedral scaffold from an input boundary mesh.
@@ -77,6 +84,8 @@ def generate_conformal_scaffold(
     Args:
         mesh: Watertight boundary mesh to tetrahedralize.
         target_element_size: Maximum mesh size target used by GMSH.
+        algorithm_3d: GMSH 3D algorithm (10=HXT, 4=Netgen). Use 4 for meshes
+            with self-intersecting facets that cause HXT to fail.
 
     Returns:
         ScaffoldResult with nodes, tetra elements, and surface triangle faces.
@@ -121,7 +130,7 @@ def generate_conformal_scaffold(
         gmsh.option.setNumber("Mesh.MeshSizeMax", float(target_element_size))
         gmsh.option.setNumber("Mesh.OptimizeNetgen", 1)
         gmsh.option.setNumber("Mesh.Algorithm", 6)
-        gmsh.option.setNumber("Mesh.Algorithm3D", 10)  # HXT tetrahedralizer
+        gmsh.option.setNumber("Mesh.Algorithm3D", int(algorithm_3d))
         gmsh.option.setNumber("Mesh.Smoothing", 100)
 
         # ---------------------------------------------------------------------
@@ -244,6 +253,31 @@ def generate_conformal_scaffold(
             )
         else:
             surface_faces = np.empty((0, 3), dtype=np.int64)
+
+        # Verify coordinate handoff: input STL bounds vs scaffold node bounds
+        input_bounds = np.asarray(mesh.bounds, dtype=np.float64)
+        node_mins = np.min(nodes, axis=0)
+        node_maxs = np.max(nodes, axis=0)
+        scaffold_bounds = np.array([node_mins, node_maxs])
+        max_diff = np.max(np.abs(input_bounds - scaffold_bounds))
+        if max_diff > 1e-5:
+            import warnings
+            warnings.warn(
+                f"Scaffold bbox mismatch: max diff = {max_diff:.2e} "
+                f"(input vs scaffold nodes). Expected <= 1e-5."
+            )
+        # Diagnostic print (can be disabled in production)
+        print(
+            f"[Scaffold] Input STL bounds: X=[{input_bounds[0,0]:.4f},{input_bounds[1,0]:.4f}] "
+            f"Y=[{input_bounds[0,1]:.4f},{input_bounds[1,1]:.4f}] "
+            f"Z=[{input_bounds[0,2]:.4f},{input_bounds[1,2]:.4f}]"
+        )
+        print(
+            f"[Scaffold] Node bounds:      X=[{node_mins[0]:.4f},{node_maxs[0]:.4f}] "
+            f"Y=[{node_mins[1]:.4f},{node_maxs[1]:.4f}] "
+            f"Z=[{node_mins[2]:.4f},{node_maxs[2]:.4f}] "
+            f"(max_diff={max_diff:.2e})"
+        )
 
         return ScaffoldResult(
             nodes=nodes,

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+*.egg-info/
+.eggs/
+
+# Large outputs (keep test_parts/*.stl as inputs)
+Adapter_Kagome_FullPipe_15pct.stl
+MariaTubeRack_Kagome_15pct.stl
+results/tests/*.stl
+*.vtk
+mariatube_output.txt
+debug_*.png
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

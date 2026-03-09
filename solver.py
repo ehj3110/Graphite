@@ -1,27 +1,84 @@
 """
 Graphite Solver Module — Solid Fraction Optimization
 
-This module solves for a strut radius that drives lattice solid fraction toward
-a requested target using bisection search.
+One-shot analytical estimator: overlapping cylinder approximation with at most
+1–2 Boolean operations. Replaces the previous bisection search.
 
-Performance upgrades:
-    - Can solve from precomputed topology (nodes + struts) so GMSH scaffold is
-      generated once and reused across variants.
-    - Smart radius seeding from total strut length narrows the search range.
+Adaptive strut thickness (Day 2):
+- Per-strut radius: r_i = L_i * k, where k = radius-to-length ratio.
+- k = sqrt(target_volume / (pi * sum(L^3))), capped at K_MAX = 0.4.
+- Prevents solid blobs in dense regions; uniform visual density.
+
+Performance (Day 2):
+- return_manifold=True for first pass: skip to_trimesh (~40s saved).
+- Use manifold.volume() directly; convert only at final export.
 """
 
 from __future__ import annotations
 
 import math
-import warnings
 from typing import NamedTuple
 
 import numpy as np
 import trimesh
 
-from geometry_module import generate_geometry
+from geometry_module import generate_geometry, manifold_to_trimesh
 from scaffold_module import generate_conformal_scaffold
 from topology_module import generate_topology
+
+# Overlap correction constant for Kagome/Voronoi (cylinder junctions)
+_OVERLAP_C = 2.5
+# Max radius-to-length ratio; higher means target Vf may be too high for mesh density
+K_MAX = 0.4
+
+
+def _strut_lengths(nodes: np.ndarray, struts: np.ndarray) -> np.ndarray:
+    """Return length of each strut: (S,) array."""
+    a = nodes[struts[:, 0]]
+    b = nodes[struts[:, 1]]
+    return np.linalg.norm(b - a, axis=1)
+
+
+def calculate_k_one_shot(
+    target_vf: float,
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    total_volume: float,
+) -> float:
+    """
+    Analytical radius-to-length ratio (k) for adaptive strut thickness.
+
+    V = sum[ pi * (L_i * k)^2 * L_i ] = pi * k^2 * sum(L_i^3)
+    Ignoring overlap for first guess: k = sqrt(target_volume / (pi * sum(L_i^3)))
+    Capped at K_MAX (0.4).
+    """
+    if struts.shape[0] == 0:
+        raise ValueError("Cannot compute k with empty `struts`.")
+    lengths = _strut_lengths(nodes, struts)
+    sum_L3 = float(np.sum(lengths ** 3))
+    if sum_L3 <= 0:
+        raise ValueError("Total L^3 is non-positive.")
+    target_volume = total_volume * float(target_vf)
+    k0 = math.sqrt(target_volume / (math.pi * sum_L3))
+    k = min(float(k0), K_MAX)
+    k = max(k, 1e-6)
+    return k
+
+
+def calculate_radius_one_shot(
+    target_vf: float,
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    total_volume: float,
+    overlap_c: float = _OVERLAP_C,
+) -> float:
+    """
+    Legacy: single radius estimate. For Smart Inset representative radius.
+    Returns k * max(L_i) where k = calculate_k_one_shot(...).
+    """
+    k = calculate_k_one_shot(target_vf, nodes, struts, total_volume)
+    lengths = _strut_lengths(nodes, struts)
+    return float(k * np.max(lengths))
 
 
 class SolverResult(NamedTuple):
@@ -32,10 +89,10 @@ class SolverResult(NamedTuple):
         mesh: Final generated lattice mesh.
         radius: Final (best) strut radius.
         volume: Final (best) trimmed lattice volume.
-        iterations: Number of bisection iterations executed.
+        iterations: 1 or 2 (Boolean operations).
         nodes: Topology node coordinates used during solve.
         struts: Topology strut index pairs used during solve.
-        seed_radius: Smart-seed center radius before bisection.
+        seed_radius: One-shot analytical radius estimate.
     """
 
     mesh: trimesh.Trimesh
@@ -47,81 +104,53 @@ class SolverResult(NamedTuple):
     seed_radius: float
 
 
-def _validate_inputs(
+def _validate_inputs_one_shot(
     mesh: trimesh.Trimesh,
     target_vf: float,
-    tol: float,
-    max_iter: int,
 ) -> None:
     if not isinstance(mesh, trimesh.Trimesh):
         raise TypeError(f"`mesh` must be trimesh.Trimesh, got {type(mesh)}.")
     if target_vf <= 0 or target_vf >= 1:
         raise ValueError("`target_vf` must be between 0 and 1 (exclusive).")
-    if tol <= 0:
-        raise ValueError("`tol` must be > 0.")
-    if max_iter <= 0:
-        raise ValueError("`max_iter` must be > 0.")
     if mesh.volume <= 0:
         raise ValueError(
             f"Boundary mesh volume must be positive, got {float(mesh.volume)}."
         )
 
 
-def _compute_smart_seed_radius(
-    target_volume: float,
+def _scale_boundary_for_inset(mesh: trimesh.Trimesh, radius: float) -> trimesh.Trimesh:
+    """
+    Create a 'Calculation Boundary' scaled down so the outermost edge of
+    cylinders (radius r) stays within the original footprint.
+    Scale_Factor = (Size - 2*radius) / Size.
+    """
+    extents = mesh.extents
+    size = float(min(extents))
+    if size <= 0:
+        raise ValueError("Boundary mesh has zero extent.")
+    scale = (size - 2.0 * radius) / size
+    scale = max(0.1, min(1.0, scale))
+    scaled = mesh.copy()
+    centroid = mesh.centroid
+    scaled.vertices = (mesh.vertices - centroid) * scale + centroid
+    return scaled
+
+
+def _inverse_scale_nodes_to_original(
     nodes: np.ndarray,
-    struts: np.ndarray,
-) -> float:
-    """
-    Compute seed radius from target volume and total strut length:
-        r_start = sqrt(target_volume / (pi * L_total))
-    """
-    if struts.shape[0] == 0:
-        raise ValueError("Cannot solve with empty `struts`.")
-    a = nodes[struts[:, 0]]
-    b = nodes[struts[:, 1]]
-    seg_lengths = np.linalg.norm(b - a, axis=1)
-    l_total = float(np.sum(seg_lengths))
-    if l_total <= 0:
-        raise ValueError("Total strut length is non-positive; invalid topology.")
-    return float(math.sqrt(target_volume / (math.pi * l_total)))
-
-
-def _build_audit_box(
-    mesh: trimesh.Trimesh,
-    representative_volume_fraction: float = 0.40,
-) -> trimesh.Trimesh:
-    """
-    Build axis-aligned audit box centered in the input mesh bounds.
-
-    representative_volume_fraction is the target box-volume fraction of the full
-    mesh bounds volume (e.g., 0.25 -> center 25% volume).
-    """
-    if representative_volume_fraction <= 0 or representative_volume_fraction >= 1:
-        raise ValueError("`representative_volume_fraction` must be in (0, 1).")
-    bounds = np.asarray(mesh.bounds, dtype=np.float64)
-    mins, maxs = bounds[0], bounds[1]
-    center = 0.5 * (mins + maxs)
-    extents = maxs - mins
-    scale = float(representative_volume_fraction) ** (1.0 / 3.0)
-    audit_extents = extents * scale
-    return trimesh.creation.box(extents=audit_extents, transform=trimesh.transformations.translation_matrix(center))
-
-
-def _select_audit_struts(
-    nodes: np.ndarray,
-    struts: np.ndarray,
-    audit_bounds: np.ndarray,
+    original_mesh: trimesh.Trimesh,
+    radius: float,
 ) -> np.ndarray:
-    """Select struts with both endpoints inside audit bounds."""
-    if struts.shape[0] == 0:
-        return struts
-    p0 = nodes[struts[:, 0]]
-    p1 = nodes[struts[:, 1]]
-    lo, hi = audit_bounds[0], audit_bounds[1]
-    inside0 = np.all((p0 >= lo) & (p0 <= hi), axis=1)
-    inside1 = np.all((p1 >= lo) & (p1 <= hi), axis=1)
-    return struts[inside0 & inside1]
+    """
+    Inverse-scale scaffold nodes from Smart Inset (scaled) coords back to
+    original boundary coordinate system. Lattice must be in original CAD units.
+    """
+    extents = original_mesh.extents
+    size = float(min(extents))
+    scale = (size - 2.0 * radius) / size
+    scale = max(0.1, min(1.0, scale))
+    centroid = original_mesh.centroid
+    return np.asarray((nodes - centroid) / scale + centroid, dtype=np.float64)
 
 
 def optimize_lattice_fraction_from_topology(
@@ -135,14 +164,19 @@ def optimize_lattice_fraction_from_topology(
     max_iter: int = 15,
     representative_volume_check: bool = False,
     representative_volume_fraction: float = 0.40,
+    clipped_boundary: bool = True,
 ) -> SolverResult:
     """
-    Optimize lattice solid fraction using a precomputed topology.
+    One-shot analytical radius + at most 1–2 Boolean operations.
 
-    This function avoids scaffold/topology regeneration and is used for
-    multi-variant sweeps that share one scaffold.
+    Uses overlapping cylinder approximation. If error > 2%, applies one linear
+    scaling: r_final = r_guess * sqrt(target_vf / achieved_vf).
+
+    Args:
+        clipped_boundary: If True, intersect lattice with boundary (flat look).
+            If False, export raw cylinder union (pipe look). Vf still uses intersection.
     """
-    _validate_inputs(mesh=mesh, target_vf=target_vf, tol=tol, max_iter=max_iter)
+    _validate_inputs_one_shot(mesh=mesh, target_vf=target_vf)
 
     nodes_np = np.asarray(nodes, dtype=np.float64)
     struts_np = np.asarray(struts, dtype=np.int64)
@@ -153,111 +187,91 @@ def optimize_lattice_fraction_from_topology(
     if r_min <= 0 or r_max <= 0 or r_min >= r_max:
         raise ValueError("Require 0 < r_min < r_max.")
 
-    if representative_volume_check:
-        audit_box = _build_audit_box(
-            mesh=mesh,
-            representative_volume_fraction=representative_volume_fraction,
-        )
-        eval_struts = _select_audit_struts(
-            nodes=nodes_np,
-            struts=struts_np,
-            audit_bounds=np.asarray(audit_box.bounds, dtype=np.float64),
-        )
-        if eval_struts.shape[0] == 0:
-            warnings.warn(
-                "Representative audit selection found zero struts; falling back to full topology.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            eval_mesh = mesh
-            eval_struts = struts_np
-        else:
-            eval_mesh = audit_box
+    total_volume = float(mesh.volume)
+    crop = clipped_boundary
+
+    # One-shot: radius-to-length ratio k, then r_i = L_i * k
+    lengths = _strut_lengths(nodes_np, struts_np)
+    k_guess = calculate_k_one_shot(
+        target_vf=target_vf,
+        nodes=nodes_np,
+        struts=struts_np,
+        total_volume=total_volume,
+    )
+    radii_1 = lengths * k_guess
+    radii_1 = np.clip(radii_1, r_min, r_max)
+
+    # Boolean 1: union with adaptive radii (return_manifold=True for volume-only pass)
+    result_1 = generate_geometry(
+        nodes=nodes_np,
+        struts=struts_np,
+        strut_radius=radii_1,
+        boundary_mesh=mesh,
+        add_spheres=False,
+        crop_to_boundary=crop,
+        return_manifold=True,
+    )
+    if crop:
+        manifold_1, achieved_volume = result_1
+        achieved_volume = float(achieved_volume)
     else:
-        eval_mesh = mesh
-        eval_struts = struts_np
+        lattice_1, achieved_volume = result_1
+        achieved_volume = float(achieved_volume)
+    achieved_vf = achieved_volume / total_volume
+    error = abs(achieved_vf - target_vf)
+    print(
+        f"One-shot guess achieved {achieved_vf:.4%}. Target was {target_vf:.4%}. Error: {error:.2%}"
+    )
 
-    target_volume = float(eval_mesh.volume) * float(target_vf)
-
-    # Smart seed + tightened bracket
-    seed_radius = _compute_smart_seed_radius(target_volume, nodes_np, eval_struts)
-    lower_seed = 0.8 * seed_radius
-    upper_seed = 1.2 * seed_radius
-    lower = max(float(r_min), float(lower_seed))
-    upper = min(float(r_max), float(upper_seed))
-    if lower >= upper:
-        lower, upper = float(r_min), float(r_max)
-
-    best_mesh: trimesh.Trimesh | None = None
-    best_radius = lower
-    best_volume = 0.0
-    best_error = float("inf")
-    iterations_used = 0
-
-    # Early-stop threshold requested by user (1.0%)
-    early_stop_error = 0.01
-
-    for iteration in range(1, max_iter + 1):
-        iterations_used = iteration
-        r_mid = 0.5 * (lower + upper)
-
-        candidate_mesh = generate_geometry(
-            nodes=nodes_np,
-            struts=eval_struts,
-            strut_radius=r_mid,
-            boundary_mesh=eval_mesh,
-            add_spheres=False,
-        )
-        current_volume = float(candidate_mesh.volume)
-        error = abs(current_volume - target_volume) / target_volume
-
-        if error < best_error:
-            best_error = error
-            best_mesh = candidate_mesh
-            best_radius = r_mid
-            best_volume = current_volume
-
-        if error <= tol or error < early_stop_error:
-            break
-
-        if current_volume < target_volume:
-            lower = r_mid
-        else:
-            upper = r_mid
-
-    if best_error > tol and best_error > early_stop_error:
-        warnings.warn(
-            "Bisection reached max_iter without meeting tolerance. "
-            f"Best relative error={best_error:.6f}, tol={tol:.6f}. "
-            "Returning best mesh found.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-
-    if best_mesh is None:
-        raise RuntimeError("Solver failed: no candidate mesh was generated.")
-
-    final_mesh = (
-        generate_geometry(
+    # If error > 2%, one linear scaling adjustment: k_final = k_guess * sqrt(target/achieved)
+    if error > 0.02:
+        if achieved_vf <= 0:
+            raise ValueError(
+                "Achieved Vf is zero; lattice may not intersect boundary. "
+                "Check mesh coordinates or increase target element size."
+            )
+        k_final = k_guess * math.sqrt(target_vf / achieved_vf)
+        k_final = min(k_final, K_MAX)
+        radii_2 = lengths * k_final
+        radii_2 = np.clip(radii_2, r_min, r_max)
+        result_2 = generate_geometry(
             nodes=nodes_np,
             struts=struts_np,
-            strut_radius=float(best_radius),
+            strut_radius=radii_2,
             boundary_mesh=mesh,
             add_spheres=False,
+            crop_to_boundary=crop,
+            return_manifold=False,
         )
-        if representative_volume_check
-        else best_mesh
-    )
-    final_volume = float(final_mesh.volume)
+        if crop:
+            final_mesh, final_volume = result_2
+            final_volume = float(final_volume)
+        else:
+            final_mesh, final_volume = result_2
+            final_volume = float(final_volume)
+        final_radii = radii_2
+        iterations_used = 2
+    else:
+        # Convert manifold to trimesh only for final export (saves ~40s)
+        if crop:
+            final_mesh = manifold_to_trimesh(manifold_1)
+        else:
+            final_mesh = lattice_1
+        final_volume = achieved_volume
+        final_radii = radii_1
+        iterations_used = 1
+
+    # Representative radius for SolverResult (mean of adaptive radii)
+    mean_radius = float(np.mean(final_radii))
 
     return SolverResult(
         mesh=final_mesh,
-        radius=float(best_radius),
-        volume=final_volume,
-        iterations=int(iterations_used),
+        radius=mean_radius,
+        volume=float(final_volume),
+        iterations=iterations_used,
         nodes=nodes_np,
         struts=struts_np,
-        seed_radius=float(seed_radius),
+        seed_radius=float(k_guess * np.mean(lengths)),
     )
 
 
@@ -273,26 +287,72 @@ def optimize_lattice_fraction(
     representative_volume_check: bool = False,
     representative_volume_fraction: float = 0.40,
     include_surface_cage: bool = True,
+    clipped_boundary: bool = True,
+    algorithm_3d: int = 10,
 ) -> SolverResult:
     """
-    Optimize lattice solid fraction by solving for strut radius via bisection.
+    Optimize lattice solid fraction using one-shot analytical radius.
 
-    This high-level helper generates scaffold + topology once, then delegates to
-    optimize_lattice_fraction_from_topology().
+    Generates scaffold + topology once, then delegates to
+    optimize_lattice_fraction_from_topology() (1–2 Boolean ops).
+
+    Args:
+        clipped_boundary: If True, intersect lattice with boundary (flat look).
+            If False, export raw cylinder union (pipe look). Rhombic and
+            icosahedral always use clipped; voronoi and kagome allow Full-Pipe.
+        algorithm_3d: GMSH 3D algorithm (10=HXT, 4=Netgen). Use 4 for meshes
+            with self-intersecting facets.
     """
     if target_element_size <= 0:
         raise ValueError("`target_element_size` must be > 0.")
 
+    # Rhombic and icosahedral have no natural dual skin; stay clipped
+    if topology_type in ("rhombic", "icosahedral"):
+        clipped_boundary = True
+
+    boundary_for_scaffold = mesh
+    use_smart_inset = False
+    r_guess = 0.0
+    if not clipped_boundary and topology_type in ("voronoi", "kagome"):
+        # Smart Inset: first pass to get representative radius, then scale boundary
+        scaffold_0 = generate_conformal_scaffold(
+            mesh=mesh,
+            target_element_size=float(target_element_size),
+            algorithm_3d=algorithm_3d,
+        )
+        nodes_0, struts_0 = generate_topology(
+            nodes=scaffold_0.nodes,
+            elements=scaffold_0.elements,
+            surface_faces=scaffold_0.surface_faces,
+            topology_type=topology_type,
+            include_surface_cage=include_surface_cage,
+            target_element_size=target_element_size,
+        )
+        r_guess = calculate_radius_one_shot(
+            target_vf=target_vf,
+            nodes=nodes_0,
+            struts=struts_0,
+            total_volume=float(mesh.volume),
+        )
+        r_guess = max(r_min, min(r_max, r_guess))
+        boundary_for_scaffold = _scale_boundary_for_inset(mesh, r_guess)
+        use_smart_inset = True
+
     scaffold = generate_conformal_scaffold(
-        mesh=mesh,
+        mesh=boundary_for_scaffold,
         target_element_size=float(target_element_size),
+        algorithm_3d=algorithm_3d,
     )
+    nodes = np.asarray(scaffold.nodes, dtype=np.float64)
+    if use_smart_inset:
+        nodes = _inverse_scale_nodes_to_original(nodes, mesh, r_guess)
     nodes, struts = generate_topology(
-        nodes=scaffold.nodes,
+        nodes=nodes,
         elements=scaffold.elements,
         surface_faces=scaffold.surface_faces,
         topology_type=topology_type,
         include_surface_cage=include_surface_cage,
+        target_element_size=target_element_size,
     )
 
     return optimize_lattice_fraction_from_topology(
@@ -306,4 +366,5 @@ def optimize_lattice_fraction(
         max_iter=max_iter,
         representative_volume_check=representative_volume_check,
         representative_volume_fraction=representative_volume_fraction,
+        clipped_boundary=clipped_boundary,
     )

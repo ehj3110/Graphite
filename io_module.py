@@ -83,7 +83,7 @@ def load_and_verify_mesh(filepath: str | Path) -> MeshVerificationResult:
 
     # --- Load mesh via trimesh ---
     # trimesh.load() may return Trimesh or Scene; we need a single Trimesh.
-    loaded = trimesh.load(str(path), force="mesh")
+    loaded = trimesh.load(str(path), force="mesh", process=False)
 
     # Handle Scene (multi-mesh) by merging into a single mesh
     if isinstance(loaded, trimesh.Scene):

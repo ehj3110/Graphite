@@ -4,6 +4,11 @@ Graphite Topology Module — Lattice Topology Synthesis
 This module converts a tetrahedral scaffold into a strut graph with four
 recipes: rhombic, voronoi, kagome, and icosahedral.
 
+Universal Surface Dual (Day 2):
+- Kagome/Voronoi use centroid-to-centroid for both internal and surface struts.
+- Surface cage: pairwise connections between adjacent boundary face centroids,
+  producing a consistent hexagonal skin. No Y-Skin or face-to-edge logic.
+
 Connectivity fix:
 - Global face mapping is created once from all tetrahedra.
 - Each unique face owns exactly one centroid node.
@@ -18,6 +23,7 @@ Safety check:
 from __future__ import annotations
 
 import warnings
+from collections import defaultdict
 
 import numpy as np
 from scipy import sparse
@@ -93,6 +99,130 @@ def count_connected_components(struts: np.ndarray, n_nodes: int) -> int:
     has_strut = np.zeros(n_components, dtype=bool)
     has_strut[labels[struts[:, 0]]] = True
     return int(np.sum(has_strut))
+
+
+def get_surface_face_adjacency_verbose(
+    surface_faces: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Like get_surface_face_adjacency but also returns the shared edge (v0, v1)
+    for each pair. Uses explicit edge->faces dict for correctness.
+    """
+    if surface_faces.shape[0] == 0:
+        return np.empty((0, 2), dtype=np.int64), np.empty((0, 2), dtype=np.int64)
+
+    # Build edge -> list of face indices (exactly 2 = shared edge)
+    edge_to_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for fi in range(surface_faces.shape[0]):
+        tri = surface_faces[fi]
+        for a, b in [(0, 1), (1, 2), (2, 0)]:
+            va, vb = int(tri[a]), int(tri[b])
+            edge = (min(va, vb), max(va, vb))
+            edge_to_faces[edge].append(fi)
+
+    pairs_list = []
+    shared_list = []
+    for edge, faces in edge_to_faces.items():
+        if len(faces) == 2:
+            i, j = min(faces), max(faces)
+            pairs_list.append((i, j))
+            shared_list.append(edge)
+
+    if not pairs_list:
+        return np.empty((0, 2), dtype=np.int64), np.empty((0, 2), dtype=np.int64)
+    return np.array(pairs_list, dtype=np.int64), np.array(shared_list, dtype=np.int64)
+
+
+def generate_surface_dual_cage(
+    surface_faces: np.ndarray,
+    face_to_node_id: np.ndarray,
+    centroid_coords: np.ndarray | None = None,
+    target_element_size: float | None = None,
+) -> np.ndarray:
+    """
+    Universal Surface Dual: centroid-to-centroid struts for adjacent surface faces.
+
+    Uses get_surface_face_adjacency and face_to_node_id to build struts.
+    Optional distance filter: skip struts longer than 1.5 * target_element_size.
+    """
+    if surface_faces.shape[0] == 0:
+        return np.empty((0, 2), dtype=np.int64)
+    if face_to_node_id.shape[0] != surface_faces.shape[0]:
+        raise ValueError(
+            f"face_to_node_id length {face_to_node_id.shape[0]} must match "
+            f"surface_faces {surface_faces.shape[0]}."
+        )
+
+    adj = get_surface_face_adjacency(surface_faces)
+    if adj.shape[0] == 0:
+        return np.empty((0, 2), dtype=np.int64)
+
+    max_dist = None
+    if target_element_size is not None and centroid_coords is not None:
+        max_dist = 1.5 * float(target_element_size)
+
+    struts_list = []
+    for i, j in adj:
+        node_a = int(face_to_node_id[i])
+        node_b = int(face_to_node_id[j])
+        if max_dist is not None and centroid_coords is not None:
+            d = float(np.linalg.norm(centroid_coords[i] - centroid_coords[j]))
+            if d > max_dist:
+                continue
+        struts_list.append((min(node_a, node_b), max(node_a, node_b)))
+
+    if not struts_list:
+        return np.empty((0, 2), dtype=np.int64)
+    return np.unique(np.array(struts_list, dtype=np.int64), axis=0)
+
+
+def get_surface_face_adjacency(surface_faces: np.ndarray) -> np.ndarray:
+    """
+    Map which surface triangles share an edge.
+
+    Edges are identified by EXACTLY TWO matching vertex IDs (canonical pair).
+    Returns an (E, 2) array of face index pairs (i, j) with i < j,
+    one row per shared edge. Faces that share an edge are neighbors.
+
+    Vertex IDs must be consistent: the same geometric point must use the same
+    index in all faces. Duplicate vertices (same coord, different ID) cause
+    ghost adjacencies or missed neighbors.
+    """
+    pairs, _ = get_surface_face_adjacency_verbose(surface_faces)
+    if pairs.shape[0] == 0:
+        return pairs
+    return np.unique(pairs, axis=0)
+
+
+def _build_surface_face_to_node_map(
+    surface_faces: np.ndarray,
+    unique_faces: np.ndarray,
+    off_faces: int,
+    face_cent: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Map each surface face index to (node_id, centroid_coords).
+    Returns (face_to_node_id, centroid_coords) for use with generate_surface_dual_cage.
+    """
+    if surface_faces.shape[0] == 0:
+        return np.empty((0,), dtype=np.int64), np.empty((0, 3), dtype=np.float64)
+
+    sf_canon = np.sort(surface_faces, axis=1)
+    face_keys = _row_keys(unique_faces)
+    sf_keys = _row_keys(sf_canon)
+    face_order = np.argsort(face_keys)
+    face_sorted = face_keys[face_order]
+    face_pos = np.searchsorted(face_sorted, sf_keys)
+    face_valid = face_pos < face_sorted.shape[0]
+    face_pos_safe = np.clip(face_pos, 0, face_sorted.shape[0] - 1)
+    face_match = face_valid & (face_sorted[face_pos_safe] == sf_keys)
+    if not np.all(face_match):
+        return np.empty((0,), dtype=np.int64), np.empty((0, 3), dtype=np.float64)
+
+    unique_face_ids = face_order[face_pos_safe]
+    face_to_node_id = off_faces + unique_face_ids
+    centroid_coords = face_cent[unique_face_ids]
+    return face_to_node_id, centroid_coords
 
 
 def _surface_cage_vertex_edges(surface_faces: np.ndarray) -> np.ndarray:
@@ -333,61 +463,6 @@ def _apply_surface_edge_collinearity_straightener(
     return out_mid
 
 
-def _surface_cage_boundary_face_nodes(
-    surface_faces: np.ndarray,
-    boundary_faces: np.ndarray,
-    boundary_node_ids: np.ndarray,
-) -> np.ndarray:
-    """
-    Build boundary cage edges between boundary-face nodes.
-
-    `boundary_faces` are canonical (sorted) face vertex triples and
-    `boundary_node_ids[i]` is the node index for `boundary_faces[i]`.
-    """
-    if surface_faces.shape[0] == 0 or boundary_faces.shape[0] == 0:
-        return np.empty((0, 2), dtype=np.int64)
-
-    sf_canon = np.sort(surface_faces, axis=1)
-    sf_keys = _row_keys(sf_canon)
-    bf_keys = _row_keys(boundary_faces)
-
-    order = np.argsort(bf_keys)
-    sorted_keys = bf_keys[order]
-    pos = np.searchsorted(sorted_keys, sf_keys)
-    valid = pos < sorted_keys.shape[0]
-    pos_safe = np.clip(pos, 0, sorted_keys.shape[0] - 1)
-    matched = valid & (sorted_keys[pos_safe] == sf_keys)
-    if not np.all(matched):
-        return np.empty((0, 2), dtype=np.int64)
-
-    # boundary-node id for each surface face
-    sf_node_ids = boundary_node_ids[order[pos_safe]]
-
-    # connect boundary-face nodes of adjacent boundary faces (shared edge)
-    be01 = np.sort(surface_faces[:, [0, 1]], axis=1)
-    be12 = np.sort(surface_faces[:, [1, 2]], axis=1)
-    be20 = np.sort(surface_faces[:, [2, 0]], axis=1)
-    all_edges = np.vstack((be01, be12, be20))
-    owner_faces = np.repeat(np.arange(surface_faces.shape[0], dtype=np.int64), 3)
-
-    _, inv = np.unique(all_edges, axis=0, return_inverse=True)
-    ord_e = np.argsort(inv)
-    inv_s = inv[ord_e]
-    face_s = owner_faces[ord_e]
-
-    _, starts, counts = np.unique(inv_s, return_index=True, return_counts=True)
-    two_mask = counts == 2
-    if not np.any(two_mask):
-        return np.empty((0, 2), dtype=np.int64)
-
-    f0 = face_s[starts[two_mask]]
-    f1 = face_s[starts[two_mask] + 1]
-    n0 = sf_node_ids[f0]
-    n1 = sf_node_ids[f1]
-    struts = np.column_stack((np.minimum(n0, n1), np.maximum(n0, n1)))
-    return np.unique(struts, axis=0)
-
-
 def _surface_cage_edge_midpoints(
     surface_faces: np.ndarray,
     unique_edges: np.ndarray,
@@ -433,6 +508,7 @@ def generate_topology(
     type: str = "rhombic",
     topology_type: str | None = None,
     include_surface_cage: bool = True,
+    target_element_size: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate topology nodes and struts for conformal tetra scaffold.
@@ -535,9 +611,6 @@ def generate_topology(
         # - one-tet face: connect volume centroid to boundary face centroid
         #   (only when include_surface_cage=True)
         boundary_face_ids = uniq_face_ids[~has_two]
-        boundary_face_nodes = np.empty((0, 3), dtype=np.float64)
-        boundary_face_node_ids = np.empty((0,), dtype=np.int64)
-        boundary_faces = np.empty((0, 3), dtype=np.int64)
 
         two_a = off_vol + first_tet[has_two]
         two_b = off_vol + second_tet[has_two]
@@ -548,20 +621,12 @@ def generate_topology(
         )
 
         if include_surface_cage:
-            # PATCH: For boundary faces (len(tets)==1), compute centroid from
-            # THAT specific face vertices immediately and create dedicated nodes.
-            boundary_faces = unique_faces[boundary_face_ids]  # canonical triples
-            boundary_face_nodes = (
-                nodes_np[boundary_faces[:, 0]]
-                + nodes_np[boundary_faces[:, 1]]
-                + nodes_np[boundary_faces[:, 2]]
-            ) / 3.0
-            boundary_face_node_ids = off_vol + n_tets + np.arange(
-                boundary_face_nodes.shape[0], dtype=np.int64
-            )
+            # Use face centroids (off_faces + boundary_face_ids) for boundary
+            # so internal struts land on same nodes as Surface Dual cage.
             b_tet = off_vol + first_tet[~has_two]
+            b_face = off_faces + boundary_face_ids
             struts_boundary = (
-                np.column_stack((b_tet, boundary_face_node_ids))
+                np.column_stack((b_tet, b_face))
                 if b_tet.size
                 else np.empty((0, 2), dtype=np.int64)
             )
@@ -586,37 +651,23 @@ def generate_topology(
         internal = tri_edges
 
     # Unified node array for all recipes (simple, stable indexing)
-    if topo == "voronoi" and include_surface_cage:
-        all_nodes = np.vstack(
-            (
-                nodes_np,
-                edge_mid,
-                face_cent,
-                np.mean(tet_xyz, axis=1),
-                boundary_face_nodes,
-            )
-        )
-    else:
-        all_nodes = np.vstack((nodes_np, edge_mid, face_cent, np.mean(tet_xyz, axis=1)))
+    # Voronoi uses face_cent for boundary faces; no separate boundary_face_nodes.
+    all_nodes = np.vstack((nodes_np, edge_mid, face_cent, np.mean(tet_xyz, axis=1)))
 
     # Type-specific boundary cage
     if include_surface_cage:
         if topo == "rhombic":
             cage = _surface_cage_vertex_edges(surface_faces_np)
-        elif topo == "voronoi":
-            cage = _surface_cage_boundary_face_nodes(
-                surface_faces_np,
-                boundary_faces=boundary_faces,
-                boundary_node_ids=boundary_face_node_ids,
+        elif topo in ("voronoi", "kagome"):
+            # Universal Surface Dual: centroid-to-centroid struts for adjacent faces
+            face_to_node_id, centroid_coords = _build_surface_face_to_node_map(
+                surface_faces_np, unique_faces, off_faces, face_cent
             )
-        elif topo == "kagome":
-            # Master Y-skin: 3 struts per surface face (centroid -> edge midpoints)
-            cage = _surface_skin_face_centroid_to_edge_midpoints(
-                surface_faces=surface_faces_np,
-                unique_faces=unique_faces,
-                off_faces=off_faces,
-                unique_edges=unique_edges,
-                off_edges=off_edges,
+            cage = generate_surface_dual_cage(
+                surface_faces_np,
+                face_to_node_id,
+                centroid_coords=centroid_coords,
+                target_element_size=target_element_size,
             )
         else:
             cage = _surface_cage_edge_midpoints(surface_faces_np, unique_edges, off_edges)
