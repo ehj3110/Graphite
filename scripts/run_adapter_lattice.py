@@ -20,7 +20,8 @@ if not STL_PATH.exists():
 
 ELEMENT_SIZE = 6.0
 TARGET_VF = 0.15
-OUTPUT_PATH = Path("Adapter_Kagome_FullPipe_15pct.stl")
+OUTPUT_PATH = Path("Adapter_Kagome_FullPipe_Uniform.stl")
+QUALITY_EXPORT_BASE = "Adapter_Mesh_Quality"
 
 
 def _mesh_diagnostics(mesh: trimesh.Trimesh, label: str) -> None:
@@ -89,6 +90,9 @@ def main() -> None:
         topology_type="kagome",
         include_surface_cage=True,
         clipped_boundary=True,
+        union_batch_size=10,
+        fast_solve=True,  # Analytical k + overlap factor; build once, no iteration
+        export_quality_path=QUALITY_EXPORT_BASE,
     )
 
     result.mesh.export(str(OUTPUT_PATH))

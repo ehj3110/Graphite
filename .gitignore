@@ -9,11 +9,13 @@ venv/
 *.egg-info/
 .eggs/
 
-# Large outputs (keep test_parts/*.stl as inputs)
-Adapter_Kagome_FullPipe_15pct.stl
-MariaTubeRack_Kagome_15pct.stl
-results/tests/*.stl
+# Large outputs — binaries and generated files not suitable for git
+results/benchmark/
+results/*.stl
+results/*.vtk
+results/*.pos
 *.vtk
+*.pos
 mariatube_output.txt
 debug_*.png
 

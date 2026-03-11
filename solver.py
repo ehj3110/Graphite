@@ -4,10 +4,11 @@ Graphite Solver Module — Solid Fraction Optimization
 One-shot analytical estimator: overlapping cylinder approximation with at most
 1–2 Boolean operations. Replaces the previous bisection search.
 
-Adaptive strut thickness (Day 2):
-- Per-strut radius: r_i = L_i * k, where k = radius-to-length ratio.
-- k = sqrt(target_volume / (pi * sum(L^3))), capped at K_MAX = 0.4.
-- Prevents solid blobs in dense regions; uniform visual density.
+Adaptive strut thickness (Balanced Scaling):
+- Per-strut radius: r_i = sqrt(L_i) * k, where k = radius-to-length ratio.
+- V_est = sum(pi * (sqrt(L_i)*k)^2 * L_i) = pi * k^2 * sum(L_i^2).
+- k = sqrt(target_volume / (pi * sum(L^2))), capped at K_MAX = 0.4.
+- Volume scales with L^2 (not L^3), preventing large struts from hogging Vf.
 
 Performance (Day 2):
 - return_manifold=True for first pass: skip to_trimesh (~40s saved).
@@ -30,6 +31,11 @@ from topology_module import generate_topology
 _OVERLAP_C = 2.5
 # Max radius-to-length ratio; higher means target Vf may be too high for mesh density
 K_MAX = 0.4
+# Node overlap factor: junctions reduce effective volume. Tune for target Vf accuracy.
+# 0.85 = theoretical Kagome; 0.70–0.78 often needed for clipped parts.
+OVERLAP_FACTOR_KAGOME = 0.72
+OVERLAP_FACTOR_VORONOI = 0.72
+OVERLAP_FACTOR_DEFAULT = 0.85
 
 
 def _strut_lengths(nodes: np.ndarray, struts: np.ndarray) -> np.ndarray:
@@ -46,20 +52,53 @@ def calculate_k_one_shot(
     total_volume: float,
 ) -> float:
     """
-    Analytical radius-to-length ratio (k) for adaptive strut thickness.
+    Analytical radius-to-length ratio (k) for balanced strut thickness.
 
-    V = sum[ pi * (L_i * k)^2 * L_i ] = pi * k^2 * sum(L_i^3)
-    Ignoring overlap for first guess: k = sqrt(target_volume / (pi * sum(L_i^3)))
-    Capped at K_MAX (0.4).
+    r_i = sqrt(L_i) * k  =>  V_est = sum(pi * (sqrt(L_i)*k)^2 * L_i) = pi * k^2 * sum(L_i^2)
+    k = sqrt(target_volume / (pi * sum(L_i^2))), capped at K_MAX (0.4).
     """
     if struts.shape[0] == 0:
         raise ValueError("Cannot compute k with empty `struts`.")
     lengths = _strut_lengths(nodes, struts)
-    sum_L3 = float(np.sum(lengths ** 3))
-    if sum_L3 <= 0:
-        raise ValueError("Total L^3 is non-positive.")
+    sum_L2 = float(np.sum(lengths**2))
+    if sum_L2 <= 0:
+        raise ValueError("Total L^2 is non-positive.")
     target_volume = total_volume * float(target_vf)
-    k0 = math.sqrt(target_volume / (math.pi * sum_L3))
+    k0 = math.sqrt(target_volume / (math.pi * sum_L2))
+    k = min(float(k0), K_MAX)
+    k = max(k, 1e-6)
+    return k
+
+
+def calculate_k_analytical(
+    target_vf: float,
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    total_volume: float,
+    overlap_factor: float | None = None,
+    topology_type: str = "kagome",
+) -> float:
+    """
+    One-shot analytical k with node overlap factor. Balanced scaling: r_i = sqrt(L_i)*k.
+
+    V_est = sum(pi * (sqrt(L_i)*k)^2 * L_i) = pi * k^2 * sum(L^2)
+    Junctions reduce effective volume: V_actual ≈ V_est * overlap_factor.
+    => k = sqrt(target_volume / (overlap_factor * pi * sum(L^2)))
+    """
+    if struts.shape[0] == 0:
+        raise ValueError("Cannot compute k with empty `struts`.")
+    lengths = _strut_lengths(nodes, struts)
+    sum_L2 = float(np.sum(lengths**2))
+    if sum_L2 <= 0:
+        raise ValueError("Total L^2 is non-positive.")
+    target_volume = total_volume * float(target_vf)
+    if overlap_factor is not None:
+        factor = overlap_factor
+    elif topology_type in ("kagome", "voronoi"):
+        factor = OVERLAP_FACTOR_KAGOME if topology_type == "kagome" else OVERLAP_FACTOR_VORONOI
+    else:
+        factor = OVERLAP_FACTOR_DEFAULT
+    k0 = math.sqrt(target_volume / (factor * math.pi * sum_L2))
     k = min(float(k0), K_MAX)
     k = max(k, 1e-6)
     return k
@@ -74,11 +113,11 @@ def calculate_radius_one_shot(
 ) -> float:
     """
     Legacy: single radius estimate. For Smart Inset representative radius.
-    Returns k * max(L_i) where k = calculate_k_one_shot(...).
+    Balanced scaling: returns sqrt(max(L_i)) * k where k = calculate_k_one_shot(...).
     """
     k = calculate_k_one_shot(target_vf, nodes, struts, total_volume)
     lengths = _strut_lengths(nodes, struts)
-    return float(k * np.max(lengths))
+    return float(math.sqrt(np.max(lengths)) * k)
 
 
 class SolverResult(NamedTuple):
@@ -165,6 +204,9 @@ def optimize_lattice_fraction_from_topology(
     representative_volume_check: bool = False,
     representative_volume_fraction: float = 0.40,
     clipped_boundary: bool = True,
+    union_batch_size: int = 10,
+    fast_solve: bool = False,
+    topology_type: str = "kagome",
 ) -> SolverResult:
     """
     One-shot analytical radius + at most 1–2 Boolean operations.
@@ -175,6 +217,9 @@ def optimize_lattice_fraction_from_topology(
     Args:
         clipped_boundary: If True, intersect lattice with boundary (flat look).
             If False, export raw cylinder union (pipe look). Vf still uses intersection.
+        union_batch_size: Batch size for recursive_batch_union. Try 5, 10, 20, 50.
+        fast_solve: If True, use analytical k with overlap factor; build once, no iteration.
+        topology_type: For overlap factor selection (kagome/voronoi use 0.85).
     """
     _validate_inputs_one_shot(mesh=mesh, target_vf=target_vf)
 
@@ -189,16 +234,53 @@ def optimize_lattice_fraction_from_topology(
 
     total_volume = float(mesh.volume)
     crop = clipped_boundary
-
-    # One-shot: radius-to-length ratio k, then r_i = L_i * k
     lengths = _strut_lengths(nodes_np, struts_np)
+
+    if fast_solve:
+        # Analytical only: k with overlap factor, build once, export. No iteration.
+        k_guess = calculate_k_analytical(
+            target_vf=target_vf,
+            nodes=nodes_np,
+            struts=struts_np,
+            total_volume=total_volume,
+            topology_type=topology_type,
+        )
+        radii_1 = np.sqrt(lengths) * k_guess
+        radii_1 = np.clip(radii_1, r_min, r_max)
+        result = generate_geometry(
+            nodes=nodes_np,
+            struts=struts_np,
+            strut_radius=radii_1,
+            boundary_mesh=mesh,
+            add_spheres=False,
+            crop_to_boundary=crop,
+            return_manifold=False,
+            union_batch_size=union_batch_size,
+        )
+        if crop:
+            final_mesh, final_volume = result
+        else:
+            final_mesh, final_volume = result
+        mean_radius = float(np.mean(radii_1))
+        print(f"Fast solve: k={k_guess:.6f}, Vf={final_volume / total_volume:.4%}")
+        return SolverResult(
+            mesh=final_mesh,
+            radius=mean_radius,
+            volume=float(final_volume),
+            iterations=1,
+            nodes=nodes_np,
+            struts=struts_np,
+            seed_radius=float(k_guess * math.sqrt(np.mean(lengths))),
+        )
+
+    # One-shot: balanced scaling r_i = sqrt(L_i) * k
     k_guess = calculate_k_one_shot(
         target_vf=target_vf,
         nodes=nodes_np,
         struts=struts_np,
         total_volume=total_volume,
     )
-    radii_1 = lengths * k_guess
+    radii_1 = np.sqrt(lengths) * k_guess
     radii_1 = np.clip(radii_1, r_min, r_max)
 
     # Boolean 1: union with adaptive radii (return_manifold=True for volume-only pass)
@@ -210,6 +292,7 @@ def optimize_lattice_fraction_from_topology(
         add_spheres=False,
         crop_to_boundary=crop,
         return_manifold=True,
+        union_batch_size=union_batch_size,
     )
     if crop:
         manifold_1, achieved_volume = result_1
@@ -232,7 +315,7 @@ def optimize_lattice_fraction_from_topology(
             )
         k_final = k_guess * math.sqrt(target_vf / achieved_vf)
         k_final = min(k_final, K_MAX)
-        radii_2 = lengths * k_final
+        radii_2 = np.sqrt(lengths) * k_final
         radii_2 = np.clip(radii_2, r_min, r_max)
         result_2 = generate_geometry(
             nodes=nodes_np,
@@ -242,6 +325,7 @@ def optimize_lattice_fraction_from_topology(
             add_spheres=False,
             crop_to_boundary=crop,
             return_manifold=False,
+            union_batch_size=union_batch_size,
         )
         if crop:
             final_mesh, final_volume = result_2
@@ -271,7 +355,7 @@ def optimize_lattice_fraction_from_topology(
         iterations=iterations_used,
         nodes=nodes_np,
         struts=struts_np,
-        seed_radius=float(k_guess * np.mean(lengths)),
+        seed_radius=float(k_guess * math.sqrt(np.mean(lengths))),
     )
 
 
@@ -289,6 +373,9 @@ def optimize_lattice_fraction(
     include_surface_cage: bool = True,
     clipped_boundary: bool = True,
     algorithm_3d: int = 10,
+    union_batch_size: int = 10,
+    fast_solve: bool = False,
+    export_quality_path: str | None = None,
 ) -> SolverResult:
     """
     Optimize lattice solid fraction using one-shot analytical radius.
@@ -302,6 +389,8 @@ def optimize_lattice_fraction(
             icosahedral always use clipped; voronoi and kagome allow Full-Pipe.
         algorithm_3d: GMSH 3D algorithm (10=HXT, 4=Netgen). Use 4 for meshes
             with self-intersecting facets.
+        union_batch_size: Batch size for recursive_batch_union. Try 5, 10, 20, 50.
+        fast_solve: If True, analytical k with overlap factor; build once, no iteration.
     """
     if target_element_size <= 0:
         raise ValueError("`target_element_size` must be > 0.")
@@ -319,6 +408,7 @@ def optimize_lattice_fraction(
             mesh=mesh,
             target_element_size=float(target_element_size),
             algorithm_3d=algorithm_3d,
+            export_quality_path=None,  # Only export from final scaffold
         )
         nodes_0, struts_0 = generate_topology(
             nodes=scaffold_0.nodes,
@@ -342,6 +432,7 @@ def optimize_lattice_fraction(
         mesh=boundary_for_scaffold,
         target_element_size=float(target_element_size),
         algorithm_3d=algorithm_3d,
+        export_quality_path=export_quality_path,
     )
     nodes = np.asarray(scaffold.nodes, dtype=np.float64)
     if use_smart_inset:
@@ -367,4 +458,7 @@ def optimize_lattice_fraction(
         representative_volume_check=representative_volume_check,
         representative_volume_fraction=representative_volume_fraction,
         clipped_boundary=clipped_boundary,
+        union_batch_size=union_batch_size,
+        fast_solve=fast_solve,
+        topology_type=topology_type,
     )

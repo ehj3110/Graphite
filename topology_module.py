@@ -50,6 +50,86 @@ def _row_keys(a: np.ndarray) -> np.ndarray:
     return b.view(np.dtype((np.void, b.dtype.itemsize * b.shape[1]))).ravel()
 
 
+def _merge_short_struts(
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    target_element_size: float,
+    min_length_ratio: float = 0.15,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Strut merger (de-clutter): merge nodes connected by struts shorter than
+    min_length_ratio * target_element_size. Dissolves tiny geometry in concave corners.
+    """
+    if struts.shape[0] == 0 or target_element_size <= 0:
+        return nodes, struts
+
+    min_len = min_length_ratio * target_element_size
+    a_xyz = nodes[struts[:, 0]]
+    b_xyz = nodes[struts[:, 1]]
+    lengths = np.linalg.norm(b_xyz - a_xyz, axis=1)
+    short_mask = lengths < min_len
+
+    if not np.any(short_mask):
+        return nodes, struts
+
+    # Union-find: merge nodes connected by short struts
+    n = nodes.shape[0]
+    parent = np.arange(n, dtype=np.int64)
+
+    def find(x: int) -> int:
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(x: int, y: int) -> None:
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    for i in np.where(short_mask)[0]:
+        union(int(struts[i, 0]), int(struts[i, 1]))
+
+    # Canonical node per equivalence class
+    canonical = np.array([find(i) for i in range(n)], dtype=np.int64)
+
+    # Centroid of each class (for merged node position)
+    class_sum = np.zeros((n, 3), dtype=np.float64)
+    class_count = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        c = canonical[i]
+        class_sum[c] += nodes[i]
+        class_count[c] += 1
+    class_count[class_count == 0] = 1
+    new_node_xyz = class_sum / class_count[:, None]
+
+    # Build compact node list: one per unique canonical
+    unique_can = np.unique(canonical)
+    old_to_new = np.full(n, -1, dtype=np.int64)
+    for new_idx, old_idx in enumerate(unique_can):
+        old_to_new[old_idx] = new_idx
+
+    new_nodes = new_node_xyz[unique_can]
+    new_struts = np.column_stack(
+        (old_to_new[canonical[struts[:, 0]]], old_to_new[canonical[struts[:, 1]]])
+    )
+
+    # Remove degenerate and duplicate
+    keep = new_struts[:, 0] != new_struts[:, 1]
+    new_struts = new_struts[keep]
+    new_struts = np.sort(new_struts, axis=1)
+    new_struts = np.unique(new_struts, axis=0)
+
+    merged_count = n - len(unique_can)
+    if merged_count > 0:
+        warnings.warn(
+            f"Strut Merger: merged {merged_count} nodes from {int(np.sum(short_mask))} "
+            f"short struts (<{min_length_ratio*100:.0f}% of element size).",
+            UserWarning,
+            stacklevel=2,
+        )
+    return new_nodes, new_struts
+
+
 def _watershed_keep_largest(struts: np.ndarray, n_nodes: int) -> np.ndarray:
     """Keep only struts in the largest connected component."""
     if struts.shape[0] == 0 or n_nodes == 0:
@@ -685,6 +765,12 @@ def generate_topology(
     remap_struts = inv_nodes[all_struts]
     remap_struts = np.sort(remap_struts, axis=1)
     remap_struts = np.unique(remap_struts, axis=0)
+
+    # Strut merger: dissolve short struts (<20% element size) to fuse U-bend junctions
+    if target_element_size is not None and target_element_size > 0:
+        unique_nodes, remap_struts = _merge_short_struts(
+            unique_nodes, remap_struts, target_element_size, min_length_ratio=0.20
+        )
 
     # Watershed: keep largest connected component
     remap_struts = _watershed_keep_largest(remap_struts, unique_nodes.shape[0])
