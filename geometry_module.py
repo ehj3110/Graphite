@@ -61,6 +61,40 @@ def manifold_to_trimesh(manifold_mesh: manifold3d.Manifold) -> trimesh.Trimesh:
     return _manifold_to_trimesh(manifold_mesh)
 
 
+def export_lattice_to_stl(
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    thickness: float = 0.5,
+    output_filename: str | None = None,
+) -> None:
+    """
+    Build lattice geometry (spheres + cylinders) and export to STL.
+
+    Parameters
+    ----------
+    nodes : ndarray, shape (N, 3)
+        Node coordinates.
+    struts : ndarray, shape (S, 2)
+        Strut endpoint indices into nodes.
+    thickness : float
+        Strut diameter; node spheres use radius = thickness / 2.
+    output_filename : str | None
+        Output path. If None, exports to "lattice_export.stl".
+    """
+    if output_filename is None:
+        output_filename = "lattice_export.stl"
+
+    mesh = generate_geometry(
+        nodes,
+        struts,
+        strut_radius=thickness / 2.0,
+        boundary_mesh=None,
+        add_spheres=True,
+        crop_to_boundary=False,
+    )
+    mesh.export(output_filename)
+
+
 def generate_geometry(
     nodes: np.ndarray,
     struts: np.ndarray,
