@@ -28,3 +28,4 @@ Conformal_Mesh_Exploration/output/*.stl
 Universal_Lattice_Engine/output/*.stl
 Supercell_Modules/output/*.stl
 results/tests/*.stl
+Implicit_Lattice_Exploration/output/*.stl
