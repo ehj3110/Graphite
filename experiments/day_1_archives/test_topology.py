@@ -28,8 +28,8 @@ import pyvista as pv
 import trimesh
 
 from io_module import load_and_verify_mesh
-from scaffold_module import generate_conformal_scaffold
-from topology_module import generate_topology
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
+from graphite.explicit.topology_module import generate_topology
 
 
 def _build_polyline_mesh(nodes: np.ndarray, struts: np.ndarray) -> pv.PolyData:

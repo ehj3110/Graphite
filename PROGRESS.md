@@ -25,7 +25,7 @@ Implemented **r = L · k** (per-strut radius proportional to length):
 - Per-strut radii: `r_i = L_i · k` for uniform visual density.
 
 ### 5. Profiling Layer
-Added verbose **Performance Audit** timers in `geometry_module`:
+Added verbose **Performance Audit** timers in `graphite/explicit/geometry_module`:
 - Cylinder creation
 - Manifold.compose (union)
 - Manifold.intersect (clip)
@@ -59,10 +59,9 @@ Graphite/
 ├── tools/
 │   └── diagnostics/    # sweep_box_mesh, sweep_rack_mesh, diagnose_adapter_mesh, etc.
 ├── test_parts/         # Input STLs (Part2_Adapter, MariaTubeRack_Full, 20mm_cube)
-├── scaffold_module.py
-├── topology_module.py
+├── graphite/
+│   └── explicit/       # scaffold_module, topology_module, geometry_module
 ├── solver.py
-├── geometry_module.py
 ├── run_adapter_lattice.py
 ├── run_mariatube_rack.py
 └── generate_suite_20mm.py

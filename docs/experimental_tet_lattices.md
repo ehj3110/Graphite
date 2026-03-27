@@ -1,6 +1,6 @@
 # Experimental Tetrahedral Lattices (Future Upgrades)
 
-These topologies offer unique, non-standard mechanical responses and can be integrated into `topology_module.py` for advanced structural testing.
+These topologies offer unique, non-standard mechanical responses and can be integrated into `graphite/explicit/topology_module.py` for advanced structural testing.
 
 ## 1. Stochastic Trabecular Tet (Biomimetic)
 * **Concept:** Inspired by the random microstructures of trabecular bone.

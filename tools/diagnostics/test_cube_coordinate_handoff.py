@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import trimesh
 
-from scaffold_module import generate_conformal_scaffold
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
 from solver import optimize_lattice_fraction
-from topology_module import generate_topology
+from graphite.explicit.topology_module import generate_topology
 
 ELEMENT_SIZE = 5.0
 TOL = 1e-5

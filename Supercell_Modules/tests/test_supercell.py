@@ -22,7 +22,7 @@ _supercell_dir = Path(__file__).resolve().parent.parent
 if str(_supercell_dir) not in sys.path:
     sys.path.insert(0, str(_supercell_dir))
 
-from geometry_module import generate_geometry, manifold_to_trimesh
+from graphite.explicit.geometry_module import generate_geometry, manifold_to_trimesh
 
 from core.grid_generator import generate_cartesian_nodes, trim_to_stl
 from core.topologies import get_bcc_supercell, get_cartesian_kagome, get_voronoi_foam

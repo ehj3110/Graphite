@@ -22,7 +22,7 @@ if str(_root) not in sys.path:
 from Conformal_Mesh_Exploration.core.voxelizer import generate_conformal_hexes
 from Conformal_Mesh_Exploration.core.post_processing import discretize_boundary_struts, relax_hex_grid
 from Universal_Lattice_Engine.core.hex_rules import apply_hex_grid
-from geometry_module import export_lattice_to_stl
+from graphite.explicit.geometry_module import export_lattice_to_stl
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 TEST_PARTS = _root / "test_parts"

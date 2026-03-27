@@ -1,0 +1,95 @@
+import numpy as np
+from scipy.spatial import cKDTree
+from skimage import measure
+from stl import mesh
+
+# --- Parameters ---
+D = 2.2         
+H = 1.8         
+res = 140       # Increased resolution to help define the thin sheet
+target_vf = 0.33 
+
+z_nodes = [0, 0.3, 0.35, 1.8]
+p_nodes = [0.2, 0.4, 0.4, 0.8]
+
+def get_target_p(z):
+    return np.interp(z, z_nodes, p_nodes)
+
+def generate_graded_sheet_fixed():
+    print("Step 1: Generating Seeds...")
+    seeds = []
+    # Denser seed layers for better blending
+    z_layers = np.linspace(-0.2, H + 0.2, 60)
+    for zl in z_layers:
+        p_z = get_target_p(zl)
+        spacing = p_z * 2.5 
+        x_s = np.arange(-D, D, spacing)
+        y_s = np.arange(-D, D, spacing)
+        XS, YS = np.meshgrid(x_s, y_s)
+        layer_pts = np.vstack([XS.ravel(), YS.ravel(), np.full(XS.size, zl)]).T
+        layer_pts[:, :2] += np.random.uniform(-spacing*0.25, spacing*0.25, (XS.size, 2))
+        seeds.extend(layer_pts)
+    seeds = np.array(seeds)
+
+    print("Step 2: Evaluating Field (Centered Blending)...")
+    v_range_xy = np.linspace(-D/2, D/2, res)
+    v_range_z = np.linspace(0, H, res)
+    X, Y, Z = np.meshgrid(v_range_xy, v_range_xy, v_range_z, indexing='ij')
+    voxels = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
+
+    tree = cKDTree(seeds)
+    dists, indices = tree.query(voxels, k=4)
+    weights = 1.0 / (dists + 1e-6)**4 
+    weights /= np.sum(weights, axis=1)[:, np.newaxis]
+
+    total_F = np.zeros(len(voxels))
+    for i in range(4):
+        neighbor_seeds = seeds[indices[:, i]]
+        p_local = get_target_p(neighbor_seeds[:, 2])
+        k_local = (2 * np.pi) / (p_local * 2.5) 
+        
+        dX = voxels[:,0]-neighbor_seeds[:,0]
+        dY = voxels[:,1]-neighbor_seeds[:,1]
+        dZ = voxels[:,2]-neighbor_seeds[:,2]
+        
+        # We ensure each local contribution is centered around zero
+        F_i = np.cos(k_local*dX) + np.cos(k_local*dY) + np.cos(k_local*dZ)
+        total_F += F_i * weights[:, i]
+
+    # Convert to Absolute Field (The Sheet Shell)
+    F_abs = np.abs(total_F).reshape((res, res, res))
+
+    print("Step 3: Calibrating for Sheet Geometry...")
+    # Narrow tau search to find the THIN wall that doesn't fill the volume
+    tau_range = np.linspace(0.01, 1.2, 500)
+    best_tau = 0.1
+    min_error = 1.0
+    for tau_test in tau_range:
+        current_vf = np.sum(F_abs < tau_test) / F_abs.size
+        if abs(current_vf - target_vf) < min_error:
+            min_error = abs(current_vf - target_vf)
+            best_tau = tau_test
+    
+    print(f"Targeting {target_vf*100}% VF. Calibration found tau = {best_tau:.4f}")
+
+    # Step 4: Manifold Capping
+    # We use a large value so F_abs < tau is False outside the cylinder
+    dist_from_center = np.sqrt(X**2 + Y**2)
+    F_abs[dist_from_center > (D/2)] = 10 
+    F_abs[:, :, 0] = F_abs[:, :, -1] = 10 
+
+    print("Step 5: Meshing...")
+    verts, faces, _, _ = measure.marching_cubes(F_abs, level=best_tau, spacing=(D/(res-1), D/(res-1), H/(res-1)))
+    verts[:, 0] -= D/2
+    verts[:, 1] -= D/2
+
+    stl_obj = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
+    for i, f in enumerate(faces):
+        for j in range(3): stl_obj.vectors[i][j] = verts[f[j], :]
+    
+    filename = "graded_sheet_final.stl"
+    stl_obj.save(filename)
+    print(f"File saved as {filename}. Check for two sub-volumes in Blender.")
+
+if __name__ == "__main__":
+    generate_graded_sheet_fixed()

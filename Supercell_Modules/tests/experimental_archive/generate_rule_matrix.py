@@ -34,7 +34,7 @@ _supercell_dir = Path(__file__).resolve().parent.parent
 if str(_supercell_dir) not in sys.path:
     sys.path.insert(0, str(_supercell_dir))
 
-from geometry_module import manifold_to_trimesh
+from graphite.explicit.geometry_module import manifold_to_trimesh
 from core.lattice_rules import (
     apply_icosahedral_rule,
     apply_kagome_rule,

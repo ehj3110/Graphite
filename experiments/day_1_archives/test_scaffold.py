@@ -17,7 +17,7 @@ import numpy as np
 import pyvista as pv
 import trimesh
 
-from scaffold_module import ScaffoldResult, generate_conformal_scaffold
+from graphite.explicit.scaffold_module import ScaffoldResult, generate_conformal_scaffold
 
 
 def _build_tet_unstructured_grid(nodes: np.ndarray, elements: np.ndarray) -> pv.UnstructuredGrid:

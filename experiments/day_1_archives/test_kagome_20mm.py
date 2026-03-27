@@ -11,9 +11,9 @@ from pathlib import Path
 
 import trimesh
 
-from scaffold_module import generate_conformal_scaffold
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
 from solver import optimize_lattice_fraction_from_topology
-from topology_module import count_connected_components, generate_topology
+from graphite.explicit.topology_module import count_connected_components, generate_topology
 
 
 def main() -> None:

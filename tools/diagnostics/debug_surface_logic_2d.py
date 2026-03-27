@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import trimesh
 
-from scaffold_module import generate_conformal_scaffold
-from topology_module import get_surface_face_adjacency, get_surface_face_adjacency_verbose
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
+from graphite.explicit.topology_module import get_surface_face_adjacency, get_surface_face_adjacency_verbose
 
 
 def main() -> None:

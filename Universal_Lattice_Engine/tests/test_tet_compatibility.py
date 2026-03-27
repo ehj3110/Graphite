@@ -30,7 +30,7 @@ for _p in (_root, _ule):
         sys.path.insert(0, str(_p))
 
 from Universal_Lattice_Engine.core.topology_module import generate_universal_lattice
-from geometry_module import manifold_to_trimesh
+from graphite.explicit.geometry_module import manifold_to_trimesh
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 STL_PATH   = _root / "test_parts" / "20mm_cube.stl"   # 20mm box geometry

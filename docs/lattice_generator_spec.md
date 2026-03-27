@@ -22,16 +22,16 @@ This tool relies entirely on Conformal Meshing, not voxel grids.
 ### Module 1: io_module.py
 Logic: Load mesh, repair normals, verify is_watertight, calculate bounding box and total volume.
 
-### Module 2: scaffold_module.py
+### Module 2: `graphite/explicit/scaffold_module.py`
 Logic: Interface with gmsh. Set element size. Generate volumetric mesh. Extract node coordinates, element connectivity lists, and surface face connectivity.
 
-### Module 3: topology_module.py (The Core Engine)
+### Module 3: `graphite/explicit/topology_module.py` (The Core Engine)
 Step A: Iterate through elements to calculate internal local coordinates (e.g., centroids, midpoints).
 Step B: Generate internal line segments (Start XYZ to End XYZ).
 Step C (Surface Wireframe Cage): Extract the edges of the boundary surface faces and add them to the line segment list to create a clean, conformal outer bounding skeleton. No hanging struts.
 Step D (Deduplicate): Use a Hash Map or KD-Tree to ensure shared edges only generate one strut.
 
-### Module 4: geometry_module.py
+### Module 4: `graphite/explicit/geometry_module.py`
 Step A: Generate a manifold3d.Cylinder for every segment.
 Step B (Optional Fillet): Allow a toggle to generate a manifold3d.Sphere (radius slightly larger than cylinder) at every node to relieve stress concentrations at strut intersections.
 Step C: Execute manifold3d.batch_union().

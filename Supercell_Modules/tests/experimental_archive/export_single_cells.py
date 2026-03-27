@@ -25,7 +25,7 @@ _supercell_dir = Path(__file__).resolve().parent.parent
 if str(_supercell_dir) not in sys.path:
     sys.path.insert(0, str(_supercell_dir))
 
-from geometry_module import (
+from graphite.explicit.geometry_module import (
     _trimesh_to_manifold,
     generate_geometry,
     manifold_to_trimesh,

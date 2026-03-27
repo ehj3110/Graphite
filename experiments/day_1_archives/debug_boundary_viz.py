@@ -12,8 +12,8 @@ import trimesh
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from scaffold_module import generate_conformal_scaffold
-from topology_module import generate_topology
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
+from graphite.explicit.topology_module import generate_topology
 
 
 def _boundary_node_mask(nodes: np.ndarray, eps: float = 0.01) -> np.ndarray:

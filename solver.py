@@ -23,9 +23,9 @@ from typing import NamedTuple
 import numpy as np
 import trimesh
 
-from geometry_module import generate_geometry, manifold_to_trimesh
-from scaffold_module import generate_conformal_scaffold
-from topology_module import generate_topology
+from graphite.explicit.geometry_module import generate_geometry, manifold_to_trimesh
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
+from graphite.explicit.topology_module import generate_topology
 
 # Overlap correction constant for Kagome/Voronoi (cylinder junctions)
 _OVERLAP_C = 2.5

@@ -1,0 +1,63 @@
+
+Loading 'C:\Users\ehunt\OneDrive\Documents\Python Scripts\GradientImplant\SkullCutout_OriginToZero.stl' ...
+  Extents   : 37.21 x 43.83 x 9.96 mm
+  Watertight: True
+
+============================================================
+  PRE-FLIGHT SIZE ESTIMATE
+============================================================
+  Unit cell period L : 1403.5 um
+  Voxel resolution   : 87.7 um
+  Grid dimensions    : 428 x 503 x 117
+  Total voxels       : 25.2 M
+  Peak RAM (approx)  : 81 MB
+  Est. output faces  : 7.4 M
+  Est. STL file size : 353 MB
+============================================================
+
+
+Gyroid parameters:
+  Target pore diam    : 1000 um
+  Target solid frac   : 25.0%
+  Unit cell period L  : 1403.5 um
+  Voxel resolution    : 87.7 um
+
+Voxelising input mesh at 87.7 um pitch ...
+  Grid : 425 x 501 x 114  (fill 28.6%)
+
+Loading modifier 'C:\Users\ehunt\OneDrive\Documents\Python Scripts\GradientImplant\NU_OriginToSkullCutout.stl' ...
+  Modifier extents : 20.66 x 21.63 x 7.33 mm
+  Voxelising modifier ...
+  Modifier voxels  : 1,109,093  (16.0% of part)
+
+Computing Gyroid field ...
+
+Hybrid mode: main=network (25.0% SF), modifier=sheet (25.0% SF)
+  Gyroid isovalue  t = -0.75000  (target solid fraction 25.0%)
+
+Extracting network lattice (main region) ...
+  Computing analytical gradient ...
+  Accumulating QEF matrices ...
+  Active cells : 6,319,838
+  Solving QEF per cell ...
+  Generating quads ...
+  Dual contour : 6,319,838 vertices, 12,727,360 faces
+  Gyroid sheet delta = 0.38783  (target solid fraction 25.0%)
+Extracting sheet lattice (modifier region) ...
+  Computing analytical gradient ...
+  Accumulating QEF matrices ...
+  Active cells : 7,382,236
+  Solving QEF per cell ...
+  Generating quads ...
+  Dual contour : 7,382,236 vertices, 14,855,504 faces
+  Computing analytical gradient ...
+  Accumulating QEF matrices ...
+  Active cells : 7,225,580
+  Solving QEF per cell ...
+  Generating quads ...
+  Dual contour : 7,225,580 vertices, 14,542,192 faces
+  Vertices : 2,418,359
+  Faces    : 4,863,152
+  Watertight output: False
+
+Saved: 'C:\Users\ehunt\OneDrive\Documents\Python Scripts\GradientImplant\SkullCutout_OriginToZero_Gyroid_Net25pct_Sheet25pct_1000um_Hybrid.stl'

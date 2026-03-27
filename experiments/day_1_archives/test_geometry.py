@@ -3,9 +3,9 @@ Graphite Geometry Module — Test Script
 
 End-to-end chain for initial geometry validation:
     Module 1: io_module.py
-    Module 2: scaffold_module.py
-    Module 3: topology_module.py
-    Module 4: geometry_module.py
+    Module 2: graphite/explicit/scaffold_module.py
+    Module 3: graphite/explicit/topology_module.py
+    Module 4: graphite/explicit/geometry_module.py
 
 Test configuration (as requested):
     - Mock boundary: 20x20x20 box
@@ -25,10 +25,10 @@ from pathlib import Path
 
 import trimesh
 
-from geometry_module import generate_geometry
+from graphite.explicit.geometry_module import generate_geometry
 from io_module import load_and_verify_mesh
-from scaffold_module import generate_conformal_scaffold
-from topology_module import generate_topology
+from graphite.explicit.scaffold_module import generate_conformal_scaffold
+from graphite.explicit.topology_module import generate_topology
 
 
 def run_geometry_test() -> None:
