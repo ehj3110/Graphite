@@ -7,7 +7,8 @@ Robust conformal lattice R&D pipeline for repairing difficult STL shells, meshin
 - `src/repair/repair_suite.py` - production STL repair pipeline (Trimesh + PyMeshLab)
 - `src/repair/blender_repair.py` - Blender-based pre-repair helper
 - `src/meshing/generate_conformal_lattices.py` - end-to-end scaffold + lattice generation
-- `tests/test_gmsh_pipeline.py` - verbose GMSH volume meshing diagnostic
+- `tests/test_pipeline_smoke.py` - fast smoke test for repair + lattice pipeline
+- `tests/test_gmsh.py` - heavy GMSH integration test on the production STL
 - `outputs/` - generated lattice STL outputs
 
 ## Repair Pipeline
@@ -81,11 +82,19 @@ python src/repair/repair_suite.py top_part_new_BMeshRepaired.stl
 ```
 
 ```bash
-python tests/test_gmsh_pipeline.py
-```
-
-```bash
 python src/meshing/generate_conformal_lattices.py
 ```
 
 Generated artifacts are written to `outputs/`.
+
+## Test Suite (Pytest)
+
+Run the standardized smoke + integration suite from repository root:
+
+```bash
+pytest
+```
+
+Included tests:
+- `tests/test_pipeline_smoke.py`: quick end-to-end test on a generated box mesh
+- `tests/test_gmsh.py`: heavier GMSH volume generation integration test
