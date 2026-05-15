@@ -9,6 +9,12 @@ venv/
 *.egg-info/
 .eggs/
 
+# Local-only workspaces (keep on disk; not versioned)
+brain/
+scratch/
+result/
+results/
+
 # Large outputs — binaries and generated files not suitable for git
 results/benchmark/
 results/*.stl
@@ -29,3 +35,27 @@ Universal_Lattice_Engine/output/*.stl
 Supercell_Modules/output/*.stl
 results/tests/*.stl
 Implicit_Lattice_Exploration/output/*.stl
+
+# Topology optimization — large generated runs (keep local only)
+native_topt_work/
+native_topt_half_work/
+native_topt_half_run.log
+native_topt_console_capture.txt
+optimization/runs/
+vtu_telemetry/
+native_jhook_*.npz
+native_jhook_*.vtu
+native_jhook_*_run.log
+optimized_jhook_*.stl
+interrogated_jhook_*.stl
+preview_jhook_*.stl
+telemetry_run.log
+half_run_direct.log
+topt_*.log
+experiments/scikit_topt_sandbox/telemetry/*.vtu
+benchmark_pardiso_10it.log
+benchmark_scipy_10it.log
+
+# Local-only workspace bundles (can exceed 100 MB)
+optimization/archives/*.zip
+
