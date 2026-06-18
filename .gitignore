@@ -6,6 +6,8 @@ __pycache__/
 .Python
 venv/
 .venv/
+.venv312/
+.venv_torch/
 *.egg-info/
 .eggs/
 
@@ -14,6 +16,10 @@ brain/
 scratch/
 result/
 results/
+
+# experiments/: track scripts/README; ignore generated output only
+experiments/**/output/
+experiments/**/output/**
 
 # Large outputs — binaries and generated files not suitable for git
 results/benchmark/
@@ -24,6 +30,21 @@ results/*.pos
 *.pos
 mariatube_output.txt
 debug_*.png
+xz_flow_slice.png
+
+# Generated outputs (keep trimmer reference STLs at repo root of outputs/)
+outputs/**/*.png
+outputs/**/*.vtu
+outputs/**/*.inp
+outputs/**/*.step
+outputs/diagnostics/
+outputs/metrics/
+outputs/implicit/
+outputs/torture_tests/
+outputs/supercell_phase_reviews/
+outputs/test_stls/
+outputs/models/
+outputs/App outputs/
 
 # IDE
 .idea/
