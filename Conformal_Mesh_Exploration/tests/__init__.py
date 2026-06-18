@@ -1,1 +1,0 @@
-"""Conformal Mesh Exploration tests."""
