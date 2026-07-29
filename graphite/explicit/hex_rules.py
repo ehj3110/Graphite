@@ -243,6 +243,12 @@ def apply_hex_a15_kagome(
 
     cliques_arr = np.array(cliques, dtype=np.int64)
 
+    # Filter cliques by canonical centroid inside [0, 1]^3
+    if len(cliques_arr) > 0:
+        cliques_centroids = np.mean(canonical_pts[cliques_arr], axis=1)
+        canonical_inside = np.all((cliques_centroids >= -1e-5) & (cliques_centroids <= 1.0 + 1e-5), axis=1)
+        cliques_arr = cliques_arr[canonical_inside]
+
     # Helper function for trilinear warping
     def trilinear_warp(pts: np.ndarray) -> np.ndarray:
         u = pts[:, 0]
@@ -331,33 +337,9 @@ def apply_hex_a15_kagome(
 
     kagome_edges = np.array(list(kagome_edges_set), dtype=np.int64)
 
-    # 7. Crop the Kagome nodes to the unit cell boundary [0, 1]^3
-    mask = (
-        (kagome_nodes[:, 0] >= -1e-5) & (kagome_nodes[:, 0] <= 1.0 + 1e-5) &
-        (kagome_nodes[:, 1] >= -1e-5) & (kagome_nodes[:, 1] <= 1.0 + 1e-5) &
-        (kagome_nodes[:, 2] >= -1e-5) & (kagome_nodes[:, 2] <= 1.0 + 1e-5)
-    )
-    cropped_kagome_nodes = kagome_nodes[mask]
+    # 7. Warp canonical points to the deformed hex cell using trilinear interpolation (no cropping)
+    warped_pts = trilinear_warp(kagome_nodes)
 
-    if len(cropped_kagome_nodes) == 0:
-        return np.empty((0, 3), dtype=np.float64), np.empty((0, 2), dtype=np.int64)
+    return warped_pts, kagome_edges
 
-    # Map old index to new cropped index
-    old_to_new = np.full(len(kagome_nodes), -1, dtype=np.int64)
-    old_to_new[mask] = np.arange(np.sum(mask))
-
-    # Filter struts: keep only those where both endpoints survived the crop
-    struts_mask = (old_to_new[kagome_edges[:, 0]] >= 0) & (old_to_new[kagome_edges[:, 1]] >= 0)
-    cropped_kagome_edges = kagome_edges[struts_mask]
-
-    # Reindex the struts
-    cropped_kagome_edges = np.column_stack([
-        old_to_new[cropped_kagome_edges[:, 0]],
-        old_to_new[cropped_kagome_edges[:, 1]]
-    ])
-
-    # 8. Warp cropped canonical points to the deformed hex cell using trilinear interpolation
-    warped_pts = trilinear_warp(cropped_kagome_nodes)
-
-    return warped_pts, cropped_kagome_edges
 

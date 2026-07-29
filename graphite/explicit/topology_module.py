@@ -29,6 +29,8 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse import csgraph
 
+from .rules import get_topology_rule
+
 # Canonical tetra entities
 _EDGE_PAIRS = np.array(
     [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]],
@@ -644,8 +646,6 @@ def generate_topology(
         unless you need U-bend cleanup; if True, keep the ratio small (e.g. 0.05).
     """
     topo = topology_type if topology_type is not None else type
-    if topo in ("vertex_to_centroid", "bcc_vertex_conformal"):
-        topo = "rhombic"
 
     nodes_np = np.asarray(nodes, dtype=np.float64)
     elements_np = np.asarray(elements, dtype=np.int64)
@@ -661,11 +661,7 @@ def generate_topology(
         raise ValueError(
             f"`surface_faces` must have shape (K, 3) or (K, 6); got {surface_faces_np.shape}."
         )
-    if topo not in {"rhombic", "voronoi", "kagome", "icosahedral"}:
-        raise ValueError(
-            f"Unsupported topology_type='{topo}'. Supported: "
-            "'rhombic', 'voronoi', 'kagome', 'icosahedral'."
-        )
+    rule = get_topology_rule(topo)
 
     # Interior topology always uses linear tet corners only.
     tets_linear = elements_np[:, :4] if elements_np.shape[1] >= 4 else elements_np
@@ -729,54 +725,20 @@ def generate_topology(
     tet_face_idx = off_faces + face_inverse
     tet_vol_idx = off_vol + np.arange(n_tets, dtype=np.int64)
 
-    # Internal struts by recipe
-    if topo == "rhombic":
-        internal = np.column_stack((tets_linear.reshape(-1), np.repeat(tet_vol_idx, 4)))
-
-    elif topo == "voronoi":
-        # Face-adjacency driven Voronoi struts:
-        # - two-tet face: connect volume centroids of neighboring tets
-        # - one-tet face: connect volume centroid to boundary face centroid
-        #   (only when include_surface_cage=True)
-        boundary_face_ids = uniq_face_ids[~has_two]
-
-        two_a = off_vol + first_tet[has_two]
-        two_b = off_vol + second_tet[has_two]
-        struts_internal = (
-            np.column_stack((two_a, two_b))
-            if two_a.size
-            else np.empty((0, 2), dtype=np.int64)
-        )
-
-        if include_surface_cage:
-            # Use face centroids (off_faces + boundary_face_ids) for boundary
-            # so internal struts land on same nodes as Surface Dual cage.
-            b_tet = off_vol + first_tet[~has_two]
-            b_face = off_faces + boundary_face_ids
-            struts_boundary = (
-                np.column_stack((b_tet, b_face))
-                if b_tet.size
-                else np.empty((0, 2), dtype=np.int64)
-            )
-        else:
-            struts_boundary = np.empty((0, 2), dtype=np.int64)
-
-        internal = np.vstack((struts_internal, struts_boundary))
-
-    elif topo == "kagome":
-        pairs = np.array(
-            [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]],
-            dtype=np.int64,
-        )
-        a = tet_face_idx[:, pairs[:, 0]].reshape(-1)
-        b = tet_face_idx[:, pairs[:, 1]].reshape(-1)
-        internal = np.column_stack((a, b))
-
-    else:  # icosahedral
-        mids = tet_edge_idx[:, _ICOSA_FACE_EDGES]  # (M, 4, 3)
-        p = np.array([[0, 1], [1, 2], [2, 0]], dtype=np.int64)
-        tri_edges = mids[:, :, p].reshape(-1, 2)
-        internal = tri_edges
+    internal = rule.internal_builder(
+        tets_linear=tets_linear,
+        tet_face_idx=tet_face_idx,
+        tet_edge_idx=tet_edge_idx,
+        tet_vol_idx=tet_vol_idx,
+        uniq_face_ids=uniq_face_ids,
+        has_two=has_two,
+        first_tet=first_tet,
+        second_tet=second_tet,
+        off_vol=off_vol,
+        off_faces=off_faces,
+        include_surface_cage=include_surface_cage,
+        icosa_face_edges=_ICOSA_FACE_EDGES,
+    )
 
     # Unified node array for all recipes (simple, stable indexing)
     # Voronoi uses face_cent for boundary faces; no separate boundary_face_nodes.
@@ -787,9 +749,9 @@ def generate_topology(
         if surface_faces_np.shape[1] == 6:
             # Quadratic boundary triangles from GMSH: explicit curved/hinged cage.
             cage = generate_surface_cage_struts(surface_faces_np)
-        elif topo == "rhombic":
+        elif rule.cage_mode == "surface_cage":
             cage = generate_surface_cage_struts(surface_faces_np)
-        elif topo in ("voronoi", "kagome"):
+        elif rule.cage_mode == "surface_dual":
             # Universal Surface Dual: centroid-to-centroid struts for adjacent faces
             face_to_node_id, centroid_coords = _build_surface_face_to_node_map(
                 surface_faces_np, unique_faces, off_faces, face_cent

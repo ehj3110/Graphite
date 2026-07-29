@@ -25,21 +25,83 @@ from .hex_rules import (
     apply_hex_tesseract,
 )
 
-_HEX_RULES = {
-    "grid": apply_hex_grid,
-    "octahedral": apply_hex_octahedral,
-    "star": apply_hex_star,
-    "octet": apply_hex_octet_truss,
-    "kelvin14": apply_hex_kelvin14,
-    "kelvin_14": apply_hex_kelvin14,
-    "kelvin": apply_hex_kelvin,
-    "tesseract": apply_hex_tesseract,
-    "nested_cube": apply_hex_tesseract,
-    "hypercube": apply_hex_tesseract,
-    "hex_dual": apply_hex_dual,
-    "hex_face_dual": apply_hex_face_dual,
-    "a15_kagome": apply_hex_a15_kagome,
+
+from dataclasses import dataclass
+from typing import Callable
+
+HexBuilder = Callable[..., tuple[np.ndarray, np.ndarray]]
+
+@dataclass(frozen=True)
+class HexTopologyRule:
+    """
+    Definition of a specific hexahedral lattice topology rule.
+    """
+    name: str
+    builder: HexBuilder
+    cage_mode: str = "surface_dual"
+    overlap_factor: float | Callable[[float], float] = 0.85
+
+    def get_overlap_factor(self, solid_fraction: float = 0.10) -> float:
+        if callable(self.overlap_factor):
+            return float(self.overlap_factor(solid_fraction))
+        return float(self.overlap_factor)
+
+_HEX_TOPOLOGY_ALIASES: dict[str, str] = {
+    "kelvin_14": "kelvin14",
+    "nested_cube": "tesseract",
+    "hypercube": "tesseract",
 }
+
+_HEX_RULES_REGISTRY: dict[str, HexTopologyRule] = {}
+_HEX_RULES = _HEX_RULES_REGISTRY
+
+def get_hex_topology_rule(name: str) -> HexTopologyRule:
+    n = str(name).strip().lower()
+    canonical = _HEX_TOPOLOGY_ALIASES.get(n, n)
+    if canonical not in _HEX_RULES_REGISTRY:
+        supported = ", ".join(sorted(_HEX_RULES_REGISTRY.keys()))
+        raise ValueError(f"Unsupported hex topology '{name}'. Options: {supported}")
+    return _HEX_RULES_REGISTRY[canonical]
+
+def register_hex_topology_rule(
+    name: str,
+    rule: HexTopologyRule,
+    aliases: tuple[str, ...] = (),
+    overwrite: bool = False,
+) -> None:
+    n = str(name).strip().lower()
+    if n in _HEX_RULES_REGISTRY and not overwrite:
+        raise ValueError(f"Hex topology rule '{n}' is already registered.")
+    _HEX_RULES_REGISTRY[n] = rule
+    for alias in aliases:
+        a_norm = str(alias).strip().lower()
+        _HEX_TOPOLOGY_ALIASES[a_norm] = n
+
+def unregister_hex_topology_rule(name: str) -> None:
+    n = str(name).strip().lower()
+    canonical = _HEX_TOPOLOGY_ALIASES.get(n, n)
+    if canonical in _HEX_RULES_REGISTRY:
+        del _HEX_RULES_REGISTRY[canonical]
+
+# Populate defaults
+_default_rules = {
+    "grid": (apply_hex_grid, "surface_cage", 0.85),
+    "octahedral": (apply_hex_octahedral, "surface_dual", 0.72),
+    "star": (apply_hex_star, "surface_cage", 0.85),
+    "octet": (apply_hex_octet_truss, "surface_cage", 0.85),
+    "kelvin14": (apply_hex_kelvin14, "surface_cage", 0.85),
+    "kelvin": (apply_hex_kelvin, "surface_cage", 0.85),
+    "tesseract": (apply_hex_tesseract, "surface_cage", 0.85),
+    "hex_dual": (apply_hex_dual, "surface_dual", 0.72),
+    "hex_face_dual": (apply_hex_face_dual, "surface_dual", 0.72),
+    "a15_kagome": (apply_hex_a15_kagome, "surface_dual", 0.72),
+}
+
+for _rname, (_rbuilder, _rcage, _roverlap) in _default_rules.items():
+    _HEX_RULES_REGISTRY[_rname] = HexTopologyRule(
+        name=_rname, builder=_rbuilder, cage_mode=_rcage, overlap_factor=_roverlap
+    )
+
 
 
 def generate_hex_topology(
@@ -91,10 +153,9 @@ def generate_hex_topology(
     elems = np.asarray(hex_elements, dtype=np.float64)
     if elems.ndim != 3 or elems.shape[1:] != (8, 3):
         raise ValueError(f"hex_elements must have shape (N, 8, 3); got {elems.shape}.")
-    rule_key = str(rule_name).strip().lower()
-    if rule_key not in _HEX_RULES:
-        raise ValueError(f"Unsupported hex rule '{rule_name}'. Options: {sorted(_HEX_RULES)}")
-    rule_fn = _HEX_RULES[rule_key]
+    rule = get_hex_topology_rule(rule_name)
+    rule_key = rule.name
+    rule_fn = rule.builder
 
     if rule_key == "hex_dual":
         return _generate_hex_dual_topology(elems, round_decimals=round_decimals)
@@ -106,6 +167,38 @@ def generate_hex_topology(
         rule_kwargs = kwargs
     else:
         rule_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+
+    if rule_key == "a15_kagome":
+        all_nodes = []
+        all_edges = []
+        node_offset = 0
+        for elem in elems:
+            local_nodes, local_struts = rule_fn(elem, **rule_kwargs)
+            if len(local_nodes) == 0:
+                continue
+            all_nodes.append(local_nodes)
+            for u, v in local_struts:
+                all_edges.append((u + node_offset, v + node_offset))
+            node_offset += len(local_nodes)
+        
+        if not all_nodes:
+            return np.empty((0, 3), dtype=np.float64), np.empty((0, 2), dtype=np.int64)
+            
+        nodes = np.vstack(all_nodes)
+        struts = np.array(all_edges, dtype=np.int64)
+        
+        # Determine merge tolerance based on average element size
+        edge_indices = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
+        sample_size = min(len(elems), 100)
+        sample_lens = []
+        for elem in elems[:sample_size]:
+            for u, v in edge_indices:
+                sample_lens.append(np.linalg.norm(elem[u] - elem[v]))
+        avg_edge_len = np.mean(sample_lens) if sample_lens else 1.0
+        tolerance = avg_edge_len * 0.05
+        
+        nodes, struts = merge_nodes_kdtree(nodes, struts, tolerance)
+        return nodes, struts
 
     node_map: dict[tuple[float, float, float], int] = {}
     nodes_list: list[np.ndarray] = []
@@ -134,6 +227,59 @@ def generate_hex_topology(
     nodes = np.vstack(nodes_list) if nodes_list else np.empty((0, 3), dtype=np.float64)
     struts = np.array(sorted(strut_set), dtype=np.int64) if strut_set else np.empty((0, 2), dtype=np.int64)
     return nodes, struts
+
+
+def merge_nodes_kdtree(nodes: np.ndarray, struts: np.ndarray, tolerance: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Merge coincident/duplicate nodes within a specified distance tolerance using KDTree.
+    """
+    from scipy.spatial import cKDTree
+    tree = cKDTree(nodes)
+    pairs = tree.query_pairs(r=tolerance)
+    
+    parent = np.arange(len(nodes))
+    def find(i):
+        path = []
+        while parent[i] != i:
+            path.append(i)
+            i = parent[i]
+        for node in path:
+            parent[node] = i
+        return i
+    
+    def union(i, j):
+        root_i = find(i)
+        root_j = find(j)
+        if root_i != root_j:
+            parent[root_i] = root_j
+            
+    for u, v in pairs:
+        union(u, v)
+        
+    unique_roots = np.unique([find(i) for i in range(len(nodes))])
+    root_to_new = {root: new_idx for new_idx, root in enumerate(unique_roots)}
+    
+    new_nodes = np.zeros((len(unique_roots), 3))
+    counts = np.zeros(len(unique_roots))
+    
+    for i in range(len(nodes)):
+        root = find(i)
+        new_idx = root_to_new[root]
+        new_nodes[new_idx] += nodes[i]
+        counts[new_idx] += 1
+        
+    new_nodes = new_nodes / counts[:, None]
+    
+    new_struts_set = set()
+    for u, v in struts:
+        nu = root_to_new[find(u)]
+        nv = root_to_new[find(v)]
+        if nu != nv:
+            new_struts_set.add((min(nu, nv), max(nu, nv)))
+            
+    new_struts = np.array(list(new_struts_set), dtype=np.int64) if new_struts_set else np.empty((0, 2), dtype=np.int64)
+    return new_nodes, new_struts
+
 
 
 def _generate_hex_dual_topology(
