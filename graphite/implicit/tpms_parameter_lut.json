@@ -1,0 +1,358 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.650111978151926,
+      "tau": 0.40301740991376245,
+      "measured_pore_mm": 6.439622922106495,
+      "measured_solid_fraction": 0.257,
+      "converged": true,
+      "residual_pore_mm": 0.08962292210649547,
+      "residual_solid_fraction": 0.007000000000000006,
+      "notes": []
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 16.751653175779587,
+      "tau": 0.5163905856102159,
+      "measured_pore_mm": 6.478895151905265,
+      "measured_solid_fraction": 0.33075,
+      "converged": true,
+      "residual_pore_mm": 0.12889515190526524,
+      "residual_solid_fraction": 0.0007499999999999729,
+      "notes": []
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 67.03683612365036,
+      "tau": 0.3868674817427671,
+      "measured_pore_mm": 25.186354233120348,
+      "measured_solid_fraction": 0.24675995492111194,
+      "converged": true,
+      "residual_pore_mm": -0.21364576687965098,
+      "residual_solid_fraction": -0.0032400450788880597,
+      "notes": []
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 72.2775006952313,
+      "tau": 0.5108048209901631,
+      "measured_pore_mm": 25.384320853799945,
+      "measured_solid_fraction": 0.32610307927915777,
+      "converged": true,
+      "residual_pore_mm": -0.015679146200053395,
+      "residual_solid_fraction": -0.003896920720842245,
+      "notes": []
+    },
+    {
+      "lattice_type": "diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.161752497905162,
+      "tau": 0.32314265858127356,
+      "measured_pore_mm": 6.250744258266173,
+      "measured_solid_fraction": 0.24625,
+      "converged": true,
+      "residual_pore_mm": -0.09925574173382667,
+      "residual_solid_fraction": -0.0037500000000000033,
+      "notes": []
+    },
+    {
+      "lattice_type": "diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 16.366417249146092,
+      "tau": 0.3946844439563924,
+      "measured_pore_mm": 6.329900712298898,
+      "measured_solid_fraction": 0.31525,
+      "converged": true,
+      "residual_pore_mm": -0.020099287701101254,
+      "residual_solid_fraction": -0.01475000000000004,
+      "notes": []
+    },
+    {
+      "lattice_type": "diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 114.3,
+      "tau": 0.539804864691123,
+      "measured_pore_mm": 38.69073290207876,
+      "measured_solid_fraction": 0.44371325674713447,
+      "converged": false,
+      "residual_pore_mm": 13.290732902078759,
+      "residual_solid_fraction": 0.19371325674713447,
+      "notes": [
+        "Reached max_iterations without full convergence."
+      ]
+    },
+    {
+      "lattice_type": "diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 114.3,
+      "tau": 0.5180144516781394,
+      "measured_pore_mm": 38.69073290207876,
+      "measured_solid_fraction": 0.42872162399072533,
+      "converged": false,
+      "residual_pore_mm": 13.290732902078759,
+      "residual_solid_fraction": 0.09872162399072532,
+      "notes": [
+        "Reached max_iterations without full convergence."
+      ]
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.079547543896066,
+      "tau": 0.21046962632390273,
+      "measured_pore_mm": 6.218950543794923,
+      "measured_solid_fraction": 0.251,
+      "converged": true,
+      "residual_pore_mm": -0.13104945620507635,
+      "residual_solid_fraction": 0.0010000000000000009,
+      "notes": []
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 16.34977074595925,
+      "tau": 0.2629804901288842,
+      "measured_pore_mm": 6.323462485118473,
+      "measured_solid_fraction": 0.3145,
+      "converged": true,
+      "residual_pore_mm": -0.026537514881527002,
+      "residual_solid_fraction": -0.015500000000000014,
+      "notes": []
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 64.98357834519005,
+      "tau": 0.2086045416692915,
+      "measured_pore_mm": 24.707164247890653,
+      "measured_solid_fraction": 0.2487852283770651,
+      "converged": true,
+      "residual_pore_mm": -0.692835752109346,
+      "residual_solid_fraction": -0.0012147716229349015,
+      "notes": []
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 114.3,
+      "tau": 1.8967089512183082,
+      "measured_pore_mm": 0.0,
+      "measured_solid_fraction": 1.0,
+      "converged": false,
+      "residual_pore_mm": -25.4,
+      "residual_solid_fraction": 0.6699999999999999,
+      "notes": [
+        "Calibration stagnated before tolerances were met."
+      ]
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 8.718726150008385,
+      "tau": 0.4512465402492584,
+      "measured_pore_mm": 6.457018506250102,
+      "measured_solid_fraction": 0.2485,
+      "converged": true,
+      "residual_pore_mm": 0.10701850625010234,
+      "residual_solid_fraction": -0.0015000000000000013,
+      "notes": []
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 8.603484204234283,
+      "tau": 0.5849935990727879,
+      "measured_pore_mm": 6.371671247515645,
+      "measured_solid_fraction": 0.32725,
+      "converged": true,
+      "residual_pore_mm": 0.021671247515645753,
+      "residual_solid_fraction": -0.00275000000000003,
+      "notes": []
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 31.81029615074444,
+      "tau": 0.4902502887401846,
+      "measured_pore_mm": 26.10517700612556,
+      "measured_solid_fraction": 0.236664162283997,
+      "converged": true,
+      "residual_pore_mm": 0.7051770061255631,
+      "residual_solid_fraction": -0.013335837716002996,
+      "notes": []
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 32.12219852399326,
+      "tau": 0.6158285975354655,
+      "measured_pore_mm": 25.958656460498453,
+      "measured_solid_fraction": 0.3178061607813674,
+      "converged": true,
+      "residual_pore_mm": 0.5586564604984545,
+      "residual_solid_fraction": -0.012193839218632596,
+      "notes": []
+    },
+    {
+      "lattice_type": "neovius",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 8.386960021948033,
+      "tau": 0.5626712942421846,
+      "measured_pore_mm": 6.487507120071879,
+      "measured_solid_fraction": 0.2475,
+      "converged": true,
+      "residual_pore_mm": 0.13750712007187893,
+      "residual_solid_fraction": -0.0025000000000000022,
+      "notes": []
+    },
+    {
+      "lattice_type": "neovius",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 8.245190588604627,
+      "tau": 0.7139212942421854,
+      "measured_pore_mm": 6.377845191814556,
+      "measured_solid_fraction": 0.3195,
+      "converged": true,
+      "residual_pore_mm": 0.027845191814556358,
+      "residual_solid_fraction": -0.01050000000000001,
+      "notes": []
+    },
+    {
+      "lattice_type": "neovius",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 30.011696951243806,
+      "tau": 0.5554614598352712,
+      "measured_pore_mm": 23.214740161764908,
+      "measured_solid_fraction": 0.2445,
+      "converged": false,
+      "residual_pore_mm": -2.1852598382350905,
+      "residual_solid_fraction": -0.005500000000000005,
+      "notes": [
+        "Reached max_iterations without full convergence."
+      ]
+    },
+    {
+      "lattice_type": "neovius",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 32.34826846391878,
+      "tau": 0.777411408572954,
+      "measured_pore_mm": 26.945885327807385,
+      "measured_solid_fraction": 0.3178061607813674,
+      "converged": false,
+      "residual_pore_mm": 1.5458853278073867,
+      "residual_solid_fraction": -0.012193839218632596,
+      "notes": [
+        "Reached max_iterations without full convergence."
+      ]
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 22.574440371650745,
+      "tau": 0.3433690476190474,
+      "measured_pore_mm": 6.173696475178916,
+      "measured_solid_fraction": 0.24625,
+      "converged": true,
+      "residual_pore_mm": -0.17630352482108336,
+      "residual_solid_fraction": -0.0037500000000000033,
+      "notes": []
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 22.68359847015138,
+      "tau": 0.45015527244036,
+      "measured_pore_mm": 6.203549218230608,
+      "measured_solid_fraction": 0.3235,
+      "converged": true,
+      "residual_pore_mm": -0.14645078176939208,
+      "residual_solid_fraction": -0.006500000000000006,
+      "notes": []
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 114.3,
+      "tau": 2.871904875500886,
+      "measured_pore_mm": 0.0,
+      "measured_solid_fraction": 1.0,
+      "converged": false,
+      "residual_pore_mm": -25.4,
+      "residual_solid_fraction": 0.75,
+      "notes": [
+        "Calibration stagnated before tolerances were met."
+      ]
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 69.90516206414843,
+      "tau": 0.4525837232130426,
+      "measured_pore_mm": 18.64137655043958,
+      "measured_solid_fraction": 0.3337922248705515,
+      "converged": false,
+      "residual_pore_mm": -6.758623449560417,
+      "residual_solid_fraction": 0.003792224870551475,
+      "notes": [
+        "Reached max_iterations without full convergence."
+      ]
+    }
+  ],
+  "meta": {
+    "lattice_types": [
+      "gyroid",
+      "diamond",
+      "schwarz-diamond",
+      "schwarz-p",
+      "neovius",
+      "split-p"
+    ],
+    "pores_mm": [
+      6.35,
+      25.4
+    ],
+    "solid_fractions": [
+      0.25,
+      0.33
+    ],
+    "controls": [
+      "L_mm",
+      "tau"
+    ],
+    "targets": [
+      "MIS_pore_mm",
+      "solid_fraction"
+    ],
+    "seed_table": "calibration_seed_table.json"
+  }
+}

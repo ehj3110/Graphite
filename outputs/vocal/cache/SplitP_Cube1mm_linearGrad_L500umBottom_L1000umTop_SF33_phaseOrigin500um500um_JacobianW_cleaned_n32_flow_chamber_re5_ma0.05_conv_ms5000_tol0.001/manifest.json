@@ -1,0 +1,25 @@
+{
+  "cache_version": 2,
+  "fingerprint": {
+    "geometry": "stl",
+    "target_n": 32,
+    "boundary_style": "flow_chamber",
+    "re": 5.0,
+    "ma": 0.05,
+    "converge": true,
+    "steps": 5000,
+    "max_steps": 5000,
+    "tolerance": 0.001,
+    "apply_flow_chamber_pad": true,
+    "stl_path": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\case_studies\\cube_1mm\\SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned.stl",
+    "stl_mtime": 1782935840.430262,
+    "stl_size": 9513684
+  },
+  "cache_slug": "SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned_n32_flow_chamber_re5_ma0.05_conv_ms5000_tol0.001",
+  "grid_meta": {
+    "voxel_size_mm": 0.031249998169143995,
+    "lattice_type": "STL_import",
+    "unit_cell_size_mm": 0.0,
+    "solid_fraction_target": 0.0
+  }
+}

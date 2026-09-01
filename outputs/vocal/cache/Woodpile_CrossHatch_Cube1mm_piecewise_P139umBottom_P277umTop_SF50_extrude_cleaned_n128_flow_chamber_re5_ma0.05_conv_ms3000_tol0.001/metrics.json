@@ -1,0 +1,21 @@
+{
+  "converged": true,
+  "steps_run": 2250,
+  "pressure_drop_pa": 3999.9950636727735,
+  "permeability_mm2": 0.0002409658454321259,
+  "wss_mean_pa": 52.411190032958984,
+  "wss_median_pa": 29.045942306518555,
+  "wss_max_pa": 424.0172119140625,
+  "grid_shape": [
+    131,
+    131,
+    135
+  ],
+  "solid_fraction": 0.5692390368341653,
+  "boundary_style": "flow_chamber",
+  "geometry": "stl",
+  "lattice_type": "STL_import",
+  "notes": [
+    "continued +250 steps from Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_cleaned_n128_flow_chamber_re5_ma0.05_steps2000"
+  ]
+}

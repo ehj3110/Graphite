@@ -1,0 +1,268 @@
+{
+  "entries": [
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 0.2,
+      "target_solid_fraction": 0.25,
+      "L_mm": 0.28,
+      "tau": 0.58
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 0.8,
+      "target_solid_fraction": 0.25,
+      "L_mm": 1.12,
+      "tau": 0.58
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 0.8,
+      "target_solid_fraction": 0.25,
+      "L_mm": 1.05,
+      "tau": 0.58
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 12.7,
+      "target_solid_fraction": 0.05,
+      "L_mm": 12.7,
+      "tau": 0.042140600110143506,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 19.05,
+      "target_solid_fraction": 0.05,
+      "L_mm": 19.05,
+      "tau": 0.042140600110143506,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 19.05,
+      "target_solid_fraction": 0.33,
+      "L_mm": 19.05,
+      "tau": 0.28279081349228297,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.05,
+      "L_mm": 25.4,
+      "tau": 0.042140600110143506,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 25.4,
+      "tau": 0.28279081349228297,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 12.7,
+      "target_solid_fraction": 0.33,
+      "L_mm": 12.7,
+      "tau": 0.28279081349228297,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 50.8,
+      "target_solid_fraction": 0.02,
+      "L_mm": 50.8,
+      "tau": 0.01720253287660678,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 25.4,
+      "tau": 0.21629315573566749,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 50.8,
+      "target_solid_fraction": 0.05,
+      "L_mm": 50.8,
+      "tau": 0.042140600110143506,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 12.7,
+      "target_solid_fraction": 0.25,
+      "L_mm": 12.7,
+      "tau": 0.21629315573566749,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 50.8,
+      "target_solid_fraction": 0.03,
+      "L_mm": 50.8,
+      "tau": 0.02635644448969815,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 12.7,
+      "target_solid_fraction": 0.15,
+      "L_mm": 12.7,
+      "tau": 0.12832529052720298,
+      "calibration_mode": "fixed_period_tau_quantile"
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.93333333333333,
+      "tau": 0.4186618543582069
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 18.0641521356014,
+      "tau": 0.5048529916252534
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 67.03683612365036,
+      "tau": 0.3868674817427671
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 74.2406562520682,
+      "tau": 0.5055286846834813
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.650111978151926,
+      "tau": 0.40301740991376245
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 16.751653175779587,
+      "tau": 0.5163905856102159
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 67.03683612365036,
+      "tau": 0.3868674817427671
+    },
+    {
+      "lattice_type": "gyroid",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 72.2775006952313,
+      "tau": 0.5108048209901631
+    },
+    {
+      "lattice_type": "diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.161752497905162,
+      "tau": 0.32314265858127356
+    },
+    {
+      "lattice_type": "diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 16.366417249146092,
+      "tau": 0.3946844439563924
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 16.079547543896066,
+      "tau": 0.21046962632390273
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 16.34977074595925,
+      "tau": 0.2629804901288842
+    },
+    {
+      "lattice_type": "schwarz-diamond",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 64.98357834519005,
+      "tau": 0.2086045416692915
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 8.718726150008385,
+      "tau": 0.4512465402492584
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 8.603484204234283,
+      "tau": 0.5849935990727879
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.25,
+      "L_mm": 31.81029615074444,
+      "tau": 0.4902502887401846
+    },
+    {
+      "lattice_type": "schwarz-p",
+      "target_pore_mm": 25.4,
+      "target_solid_fraction": 0.33,
+      "L_mm": 32.12219852399326,
+      "tau": 0.6158285975354655
+    },
+    {
+      "lattice_type": "neovius",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 8.386960021948033,
+      "tau": 0.5626712942421846
+    },
+    {
+      "lattice_type": "neovius",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 8.245190588604627,
+      "tau": 0.7139212942421854
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.25,
+      "L_mm": 22.574440371650745,
+      "tau": 0.3433690476190474
+    },
+    {
+      "lattice_type": "split-p",
+      "target_pore_mm": 6.35,
+      "target_solid_fraction": 0.33,
+      "L_mm": 22.68359847015138,
+      "tau": 0.45015527244036
+    }
+  ]
+}

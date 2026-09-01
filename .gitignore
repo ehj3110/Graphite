@@ -10,6 +10,14 @@ venv/
 .venv_torch/
 *.egg-info/
 .eggs/
+*.bak.py
+
+# Do not leave regenerable sprint media at repo root
+/*.stl
+/*.png
+/*.gif
+/*.obj
+/*.vtu
 
 # Local-only workspaces (keep on disk; not versioned)
 brain/
@@ -32,11 +40,7 @@ mariatube_output.txt
 debug_*.png
 xz_flow_slice.png
 
-# Generated outputs (keep trimmer reference STLs at repo root of outputs/)
-outputs/**/*.png
-outputs/**/*.vtu
-outputs/**/*.inp
-outputs/**/*.step
+# Generated outputs — ignore bulk, except Aristo/Vocal case-study handoff (see below)
 outputs/diagnostics/
 outputs/metrics/
 outputs/implicit/
@@ -46,9 +50,34 @@ outputs/test_stls/
 outputs/models/
 outputs/App outputs/
 
+# Default: ignore all outputs/ binaries; exceptions follow
+outputs/**
+!outputs/case_studies/
+!outputs/case_studies/**
+!outputs/vocal/
+!outputs/vocal/**
+
+# Keep superseded cube-1mm junk local only
+outputs/case_studies/cube_1mm/archive/
+
+# Legacy broad rules (PNG/VTU under other output trees stay ignored)
+outputs/**/*.png
+outputs/**/*.vtu
+outputs/**/*.inp
+outputs/**/*.step
+
+# Re-include cube 1mm review artifacts (figures, FEA, fluid metrics)
+!outputs/case_studies/cube_1mm/**/*.png
+!outputs/case_studies/cube_1mm/**/*.vtu
+!outputs/case_studies/cube_1mm/**/*.json
+!outputs/case_studies/cube_1mm/**/*.stl
+!outputs/case_studies/cube_1mm/**/*.npy
+!outputs/case_studies/cube_1mm/**/*.md
+
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 Conformal_Mesh_Exploration/output/*.stl

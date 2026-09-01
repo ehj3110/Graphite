@@ -1,0 +1,56 @@
+{
+  "updated": "2026-08-31",
+  "description": "Canonical 1 mm³ cube case study — three-lattice Aristo + Vocal comparison",
+  "figures": {
+    "primary_6panel": "figures/Cube1mm_Aristo_Vocal_6panel_comparison.png",
+    "primary_6panel_shared_scale": "figures/Cube1mm_Aristo_Vocal_6panel_comparison_sharedScale.png",
+    "primary_wss": "figures/Cube1mm_Vocal_WSS_3panel_comparison.png",
+    "phase_offset_test": "figures/SplitP_Cube1mm_piecewise_phaseOffset_test_4panel.png",
+    "vocal_updown": "figures/Cube1mm_Vocal_UpDown_2x3_comparison.png",
+    "vocal_updown_variance_direct": "figures/Cube1mm_Vocal_UpDown_variance_direct.png",
+    "vocal_updown_variance_z_mirror": "figures/Cube1mm_Vocal_UpDown_variance_z_mirror.png",
+    "splitp_downflow_cascade": "figures/Cube1mm_SplitP_Downflow_Cascade_32_64_128_2panel.png",
+    "splitp_upflow_cascade": "figures/Cube1mm_SplitP_Upflow_Cascade_32_64_128_2panel.png"
+  },
+  "geometry_stl": {
+    "woodpile_extrude": "Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_cleaned.stl",
+    "splitp_piecewise_shift_x": "SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x_cleaned.stl",
+    "splitp_linear_grad": "SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned.stl",
+    "splitp_linear_grad_fea_surface": "SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned_fea.stl"
+  },
+  "fea_aristo": {
+    "woodpile_extrude": {
+      "vtu": "fea/Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_h0p015_1N_E25p8MPa_1N_aristo_fea.vtu",
+      "report": "fea/Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_h0p015_1N_E25p8MPa_1N_aristo_report.json",
+      "settings": "1 N, E=25.8 MPa, h=0.015 mm, flat_top_vertex_plane, single_surface"
+    },
+    "splitp_piecewise_shift_x": {
+      "vtu": "fea/SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x_h005_1N_E25p8MPa_1N_aristo_fea.vtu",
+      "report": "fea/SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x_h005_1N_E25p8MPa_1N_aristo_report.json",
+      "settings": "1 N, E=25.8 MPa, h=0.005 mm, Boolean-trimmed STL, flat_top_vertex_plane"
+    },
+    "splitp_linear_grad": {
+      "vtu": "fea/SplitP_Cube1mm_linearGrad_centerPhase_h005_1N_E25p8MPa_1N_aristo_fea.vtu",
+      "report": "fea/SplitP_Cube1mm_linearGrad_centerPhase_h005_1N_E25p8MPa_1N_aristo_report.json",
+      "settings": "1 N, E=25.8 MPa, h=0.005 mm, PyMeshLab remesh FEA surface, flat_top_vertex_plane"
+    }
+  },
+  "vocal_caches": {
+    "note": "Full LBM state under outputs/vocal/cache/ (not moved — paths in manifest.json reference STLs here)",
+    "woodpile_extrude": "outputs/vocal/cache/Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_cleaned_n128_flow_chamber_re5_ma0.05_conv_ms3000_tol0.001",
+    "splitp_piecewise_shift_x": "outputs/vocal/cache/SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x_cleaned_n128_flow_chamber_re5_ma0.05_conv_ms6000_tol0.001",
+    "splitp_linear_grad": "outputs/vocal/cache/SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned_n128_flow_chamber_re5_ma0.05_conv_ms6000_tol0.001",
+    "splitp_convergence_note": "Split-P upflow caches converged at 2000 steps on the final n=128 cascade stage (warm-started from downflow n=128). Downflow n=128 required 4750 steps. See docs/VOCAL_CASCADE_WARMSTART.md."
+  },
+  "regenerate": {
+    "figures_6panel": ".venv_torch not required; python scripts/plot_cube_1mm_aristo_vocal_comparison.py --plot-only",
+    "figures_wss": ".venv_torch\\Scripts\\python.exe scripts/plot_cube_1mm_vocal_wss_comparison.py"
+  },
+  "in_progress": {
+    "doc": "docs/CUBE_1MM_VOCAL_N256_HANDOFF.md",
+    "task": "Vocal n=256 refine — linear graded Split-P warm-started from n=128",
+    "script": "scripts/run_cube_1mm_vocal_refine_n256_linear_splitp.py",
+    "status_file": "fluid/n256_linear_splitp_status.json"
+  },
+  "archive": "archive/superseded/ — obsolete phase tests, mesh sweeps, old cross-section PNGs, superseded VTUs"
+}

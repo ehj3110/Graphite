@@ -1,0 +1,9 @@
+# Aristo FEA + TPMS gmsh meshing (Python 3.10–3.12 recommended for Open3D wheels)
+gmsh>=4.13
+numpy>=1.24
+scipy>=1.10
+trimesh>=4
+shapely>=2.0
+pyvista>=0.43
+open3d>=0.18.0; python_version < "3.13"
+pypardiso>=0.4.0; platform_machine == "x86_64" or platform_machine == "AMD64"

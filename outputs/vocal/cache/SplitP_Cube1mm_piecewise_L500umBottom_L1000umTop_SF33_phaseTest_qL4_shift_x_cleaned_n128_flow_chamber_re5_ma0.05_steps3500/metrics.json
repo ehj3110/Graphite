@@ -1,0 +1,21 @@
+{
+  "converged": false,
+  "steps_run": 3500,
+  "pressure_drop_pa": 3999.9966245256364,
+  "permeability_mm2": 0.00016342023983431327,
+  "wss_mean_pa": 46.31140899658203,
+  "wss_median_pa": 34.71194076538086,
+  "wss_max_pa": 304.35791015625,
+  "grid_shape": [
+    131,
+    131,
+    135
+  ],
+  "solid_fraction": 0.38138932592635755,
+  "boundary_style": "flow_chamber",
+  "geometry": "stl",
+  "lattice_type": "STL_import",
+  "notes": [
+    "continued +3000 steps from SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x_cleaned_n128_flow_chamber_re5_ma0.05_conv_ms6000_tol0.001"
+  ]
+}

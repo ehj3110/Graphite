@@ -1,0 +1,11 @@
+{
+  "phase": "n256_refine_linear_splitp",
+  "seed_cache": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\vocal\\cache\\SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned_n128_flow_chamber_re5_ma0.05_conv_ms6000_tol0.001",
+  "output_cache": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\vocal\\cache\\SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned_n192_flow_chamber_re5_ma0.05_conv_ms6000_tol0.001",
+  "target_n": 192,
+  "converged": true,
+  "steps_run": 1000,
+  "permeability_mm2": 0.00018664364687806767,
+  "wss_max_pa": 413.3738708496094,
+  "preview_png": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\case_studies\\cube_1mm\\figures\\SplitP_Cube1mm_linearGrad_n192_vocal_XZ_midY.png"
+}

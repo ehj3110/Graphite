@@ -1,0 +1,19 @@
+{
+  "converged": false,
+  "steps_run": 2500,
+  "pressure_drop_pa": -3999.995678271167,
+  "permeability_mm2": 0.0,
+  "wss_mean_pa": 51.9935417175293,
+  "wss_median_pa": 38.08586502075195,
+  "wss_max_pa": 388.067138671875,
+  "grid_shape": [
+    131,
+    131,
+    135
+  ],
+  "solid_fraction": 0.38526158580933945,
+  "boundary_style": "flow_chamber_reverse",
+  "geometry": "stl",
+  "lattice_type": "STL_import",
+  "notes": []
+}

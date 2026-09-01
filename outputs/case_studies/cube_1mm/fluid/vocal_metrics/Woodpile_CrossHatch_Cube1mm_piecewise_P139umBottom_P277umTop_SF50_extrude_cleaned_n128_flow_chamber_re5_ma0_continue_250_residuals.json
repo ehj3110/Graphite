@@ -1,0 +1,23 @@
+{
+  "source_cache": "outputs\\vocal\\cache\\Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_cleaned_n128_flow_chamber_re5_ma0.05_steps2000",
+  "prior_steps": 2000,
+  "extra_steps": 250,
+  "check_interval": 250,
+  "history": [
+    {
+      "step": 250,
+      "mean_uz_lu": 0.00012506815255619586,
+      "mean_uz_rel": 0.0006710013173360352,
+      "velocity_l2_rel": 0.0031649263110011816,
+      "max_du_mm_s": 0.2199821174144745
+    }
+  ],
+  "final": {
+    "step": 250,
+    "mean_uz_lu": 0.00012506815255619586,
+    "mean_uz_rel": 0.0006710013173360352,
+    "velocity_l2_rel": 0.0031649263110011816,
+    "max_du_mm_s": 0.2199821174144745
+  },
+  "output_cache": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\vocal\\cache\\Woodpile_CrossHatch_Cube1mm_piecewise_P139umBottom_P277umTop_SF50_extrude_cleaned_n128_flow_chamber_re5_ma0.05_conv_ms3000_tol0.001"
+}

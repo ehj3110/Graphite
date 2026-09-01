@@ -1,0 +1,196 @@
+{
+  "domain_mm": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "solid_fraction_target": 0.33,
+  "resolution_mm": 0.01,
+  "boolean_trim": true,
+  "boolean_trim_margin_mm": 0.04,
+  "variants": [
+    {
+      "variant": "piecewise_phase_shift_x",
+      "stem": "SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x",
+      "stl_path": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\case_studies\\cube_1mm\\SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x.stl",
+      "cleaned_stl_path": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\case_studies\\cube_1mm\\SplitP_Cube1mm_piecewise_L500umBottom_L1000umTop_SF33_phaseTest_qL4_shift_x_cleaned.stl",
+      "mesh_meta": {
+        "pipeline": "analytic box SDF + piecewise L/tau; single pass",
+        "boundary_sdf": "analytic_box",
+        "combine_method": "single_pass_implicit",
+        "z_breaks_mm": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "L_mm": [
+          0.5,
+          1.0
+        ],
+        "tau": [
+          0.453146673162707,
+          0.453146673162707
+        ],
+        "n_bands": 2,
+        "lattice_type": "split-p",
+        "origin_mm": [
+          -0.04,
+          -0.04,
+          -0.04
+        ],
+        "extents_mm": [
+          1.08,
+          1.08,
+          1.08
+        ],
+        "band_phase_origin_x_mm": [
+          0.125,
+          0.0
+        ],
+        "band_phase_origin_y_mm": [
+          0.0,
+          0.0
+        ],
+        "boolean_trim": "manifold3d_intersect_design_cube",
+        "boolean_trim_seconds": 0.35943126678466797,
+        "design_cube_origin_mm": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "design_cube_size_mm": 1.0,
+        "volume_before_trim_mm3": 0.39901660664843375,
+        "volume_after_trim_mm3": 0.3266355505377488,
+        "faces_before_trim": 588744,
+        "faces_after_trim": 480874,
+        "watertight_before_repair": true,
+        "watertight_after_repair": true,
+        "island_cleanup": {
+          "n_components_before": 1,
+          "n_components_after": 1,
+          "n_islands_removed": 0,
+          "removed_faces": 0,
+          "removed_shells": []
+        },
+        "faces": 480874,
+        "vertices": 240091,
+        "volume_mm3": 0.3266355505377488,
+        "calibrated_L_mm": [
+          0.5,
+          1.0
+        ],
+        "calibrated_tau": [
+          0.453146673162707,
+          0.453146673162707
+        ],
+        "resolution_mm": 0.01,
+        "boolean_trim_enabled": true,
+        "boolean_trim_margin_mm": 0.04,
+        "design_size_mm": 1.0
+      }
+    },
+    {
+      "variant": "linear_graded",
+      "stem": "SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW",
+      "stl_path": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\case_studies\\cube_1mm\\SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW.stl",
+      "cleaned_stl_path": "C:\\Users\\ehunt\\OneDrive\\Documents\\Python Scripts\\Graphite\\outputs\\case_studies\\cube_1mm\\SplitP_Cube1mm_linearGrad_L500umBottom_L1000umTop_SF33_phaseOrigin500um500um_JacobianW_cleaned.stl",
+      "mesh_meta": {
+        "pipeline": "analytic box SDF + linear L(z), tau(z) + integrated W(z) Jacobian",
+        "boundary_sdf": "analytic_box",
+        "grading_mode": "jacobian_integrated",
+        "domain_mm": [
+          1.08,
+          1.08,
+          1.08
+        ],
+        "origin_mm": [
+          -0.04,
+          -0.04,
+          -0.04
+        ],
+        "phase_origin_mm": [
+          0.5,
+          0.5
+        ],
+        "z_knots_mm": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "L_knots_mm": [
+          0.5,
+          0.75,
+          1.0
+        ],
+        "tau_knots": [
+          0.453146673162707,
+          0.453146673162707,
+          0.453146673162707
+        ],
+        "boolean_trim": "manifold3d_intersect_design_cube",
+        "boolean_trim_seconds": 0.4873538017272949,
+        "design_cube_origin_mm": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "design_cube_size_mm": 1.0,
+        "volume_before_trim_mm3": 0.40567788556717344,
+        "volume_after_trim_mm3": 0.33123262235952694,
+        "faces_before_trim": 542696,
+        "faces_after_trim": 443234,
+        "watertight_before_repair": true,
+        "watertight_after_repair": true,
+        "island_cleanup": {
+          "n_components_before": 1,
+          "n_components_after": 1,
+          "n_islands_removed": 0,
+          "removed_faces": 0,
+          "removed_shells": []
+        },
+        "faces": 443234,
+        "vertices": 221395,
+        "volume_mm3": 0.33123262235952694,
+        "period_knots_mm": [
+          0.5,
+          0.75,
+          1.0
+        ],
+        "calibrated_L_mm": [
+          0.5,
+          0.75,
+          1.0
+        ],
+        "calibrated_tau": [
+          0.453146673162707,
+          0.453146673162707,
+          0.453146673162707
+        ],
+        "resolution_mm": 0.01,
+        "boolean_trim_enabled": true,
+        "boolean_trim_margin_mm": 0.04,
+        "design_size_mm": 1.0,
+        "calibration_knots": [
+          {
+            "period_mm": 0.5,
+            "tau": 0.453146673162707,
+            "measured_sf": 0.32943588815764674,
+            "measured_pore_mm": 0.13856406460551018
+          },
+          {
+            "period_mm": 0.75,
+            "tau": 0.453146673162707,
+            "measured_sf": 0.32883346697769356,
+            "measured_pore_mm": 0.2
+          },
+          {
+            "period_mm": 1.0,
+            "tau": 0.453146673162707,
+            "measured_sf": 0.3291919849537037,
+            "measured_pore_mm": 0.26960523104980416
+          }
+        ]
+      }
+    }
+  ]
+}
