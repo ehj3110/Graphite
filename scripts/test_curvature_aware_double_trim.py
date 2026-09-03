@@ -168,8 +168,9 @@ def main() -> None:
     print("Max Normal Turn      : 15.0 deg (Dense stations only on sharp corners)")
     print("Target Strut Depth   : 1.20 mm")
     print("Target Strut Width   : 1.20 mm")
-    print("Blank Depth          : 1.50 mm (Extends 0.30 mm past 1.20 mm inner trim)")
-    print("Blank Outward Oversize: 0.30 mm")
+    print("Blank Oversize       : +100% (+1.20 mm Outward, +1.20 mm Inward -> Total 3.60 mm depth)")
+    print("Blank Depth Inner    : 2.40 mm (Extends 1.20 mm past 1.20 mm inner trim)")
+    print("Blank Depth Outer    : 1.20 mm (Extends 1.20 mm outside CAD surface)")
     print("=" * 80)
 
     cad = trimesh.load(str(cad_path), force="mesh")
@@ -229,8 +230,8 @@ def main() -> None:
         skin_struts,
         cad,
         width=cage_width,
-        depth_inner=target_skin_thickness + 0.30,  # 1.50 mm
-        depth_outer=0.30,
+        depth_inner=target_skin_thickness + 1.20,  # 2.40 mm (+100% buffer inward)
+        depth_outer=1.20,                          # 1.20 mm (+100% buffer outward)
         max_sagitta_mm=0.20,
         max_turn_angle_deg=15.0,
     )
@@ -248,6 +249,9 @@ def main() -> None:
     clean_dual = manifold_to_trimesh(man_trimmed)
     trimesh.repair.fix_normals(clean_dual)
     clean_dual = keep_largest_solid_component(clean_dual, label="curvature_aware_dual")
+    splits_dual = clean_dual.split(only_watertight=False)
+    if len(splits_dual) > 1:
+        clean_dual = max(splits_dual, key=lambda s: s.volume)
     t_trim_s = time.perf_counter() - t_trim
 
     dual_stl = out_dir / "wrist_rest_curvature_aware_dual.stl"
@@ -271,6 +275,9 @@ def main() -> None:
     combined_mesh = manifold_to_trimesh(man_combined)
     trimesh.repair.fix_normals(combined_mesh)
     combined_mesh = keep_largest_solid_component(combined_mesh, label="curvature_aware_assembly")
+    splits_comb = combined_mesh.split(only_watertight=False)
+    if len(splits_comb) > 1:
+        combined_mesh = max(splits_comb, key=lambda s: s.volume)
     t_core_s = time.perf_counter() - t_core
 
     assembly_stl = out_dir / "wrist_rest_curvature_aware_assembly.stl"
