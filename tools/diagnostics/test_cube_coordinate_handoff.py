@@ -19,7 +19,7 @@ import numpy as np
 import trimesh
 
 from graphite.explicit.scaffold_module import generate_conformal_scaffold
-from solver import optimize_lattice_fraction
+from graphite.explicit.solver import optimize_lattice_fraction
 from graphite.explicit.topology_module import generate_topology
 
 ELEMENT_SIZE = 5.0

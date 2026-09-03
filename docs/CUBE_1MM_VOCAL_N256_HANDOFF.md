@@ -102,6 +102,8 @@ Settings: 1 N, E = 25.8 MPa, `flat_top_vertex_plane`, `single_surface`. Linear g
 - `outputs/case_studies/cube_1mm/fluid/vocal_metrics/SplitP_linearGrad_n256_refine_metrics.json`
 - `outputs/case_studies/cube_1mm/figures/SplitP_Cube1mm_linearGrad_n256_vocal_XZ_midY.png`
 
+**WSS display-only experiments** (upsample, STL stamp — abandoned for figures): see [CUBE_1MM_WSS_DISPLAY_EXPERIMENTS.md](CUBE_1MM_WSS_DISPLAY_EXPERIMENTS.md).
+
 **What “looks right”:** Finer scaffold walls on the XZ mid-Y slice; WSS bands less stair-stepped than n=128; `metrics.json` shows `converged: true` (or document steps if cap hit).
 
 ### Phase 2 — after user review

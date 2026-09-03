@@ -136,11 +136,12 @@ def test_unified_lattice_sc(tmp_path):
     cad_path = _make_sphere_stl(tmp_path, radius=5.0)
     res = generate_conformal_lattice(
         cad_filepath=cad_path,
-        cell_size=8.0,
+        cell_size=4.0,
         strut_radius=0.5,
         lattice_type="SC",
         export_dir=str(tmp_path / "out"),
         skip_sweep=True,
+        volume_fraction_threshold=0.5,
     )
     assert res["nodes_count"] > 0
     assert res["struts_count"] > 0
@@ -195,12 +196,13 @@ def test_boolean_mode_and_trimesh_input_sc(tmp_path):
     
     res = generate_conformal_lattice(
         cad_filepath=sphere,
-        cell_size=8.0,
+        cell_size=4.0,
         strut_radius=0.5,
         lattice_type="SC",
         export_dir=str(tmp_path / "out"),
         skip_sweep=True,
         mode="boolean",
+        volume_fraction_threshold=0.5,
     )
     assert res["nodes_count"] > 0
     assert res["struts_count"] > 0

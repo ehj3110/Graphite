@@ -50,6 +50,16 @@ def compute_face_surface_ids(mesh: trimesh.Trimesh, feature_angle: float) -> np.
 
 
 def visualize_surfaces(stl_path, feature_angle=45.0):
+    """
+    Load an STL file and launch an interactive 3D viewer to pick surface IDs.
+
+    Parameters
+    ----------
+    stl_path : str or pathlib.Path
+        Path to the STL mesh file to visualize.
+    feature_angle : float, optional
+        Dihedral angle threshold (in degrees) for separating surfaces, by default 45.0.
+    """
     stl_path = Path(stl_path)
     mesh = trimesh.load(stl_path)
     if not isinstance(mesh, trimesh.Trimesh):

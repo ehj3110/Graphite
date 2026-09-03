@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import trimesh
 
-from solver import optimize_lattice_fraction
+from graphite.explicit.solver import optimize_lattice_fraction
 
 _OUT_DIR = Path(__file__).resolve().parent.parent / "results" / "tests"
 

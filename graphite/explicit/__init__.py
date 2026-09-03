@@ -7,8 +7,8 @@ geometry and medical implants.
 Tet mesh: A15 Conformal Kagome Dual
   generate_a15_conformal_lattice (a15_conformal.py - existing, tested)
 
-Hex mesh: SC Conformal Octahedral Dual
-  generate_conformed_hex_scaffold (conformal_generator.py - new SC engine)
+Hex mesh: Modular SC conformal (any hex rule via ``rule_name``)
+  generate_conformal_lattice(..., lattice_type='SC', rule_name=...)
 
 Legacy GMSH scaffolders are preserved in graphite/legacy_gmsh/ for archival reference.
 """
@@ -52,7 +52,7 @@ def generate_conformal_lattice(*args, **kwargs):
     """Unified GMSH-free conformal lattice generator.
 
     lattice_type='A15' -> routes to A15 Kagome
-    lattice_type='SC'  -> routes to SC Octahedral
+    lattice_type='SC'  -> modular SC hex conformal (``rule_name``, default octahedral)
     """
     lt = kwargs.get("lattice_type", "A15")
     if lt == "A15":
@@ -100,6 +100,15 @@ def repair_cad_mesh(*args, **kwargs):
     return _impl(*args, **kwargs)
 
 
+from .geometry_module import (
+    affine_rows_from_R_t,
+    manifold_cylinder_between,
+    manifold_to_trimesh,
+    rotation_align_local_z_to_unit,
+    trimesh_to_manifold,
+)
+
+
 __all__ = [
     # Primary A15 API (routes to battle-tested a15_conformal.py)
     "generate_a15_conformal_lattice",
@@ -112,6 +121,12 @@ __all__ = [
     "generate_geometry",
     "solve_sizing",
     "repair_cad_mesh",
+    # Manifold3D Geometry Primitives & Helpers
+    "manifold_cylinder_between",
+    "rotation_align_local_z_to_unit",
+    "affine_rows_from_R_t",
+    "trimesh_to_manifold",
+    "manifold_to_trimesh",
     # Health
     "check_explicit_health",
     "missing_dependencies",

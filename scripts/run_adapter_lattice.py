@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from solver import optimize_lattice_fraction
+from graphite.explicit.solver import optimize_lattice_fraction
 
 STL_PATH = Path("test_parts/Part2_Adapter.STL")
 if not STL_PATH.exists():

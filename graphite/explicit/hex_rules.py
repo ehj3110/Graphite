@@ -8,6 +8,8 @@ given the eight corner coordinates of a single conformal hex.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 _HEX_FACES: tuple[tuple[int, int, int, int], ...] = (
@@ -74,6 +76,191 @@ def apply_hex_octahedral(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return _hex_face_centers(coords), np.array(_ADJACENT_FACE_PAIRS, dtype=np.int64)
 
 
+# ---------------------------------------------------------------------------
+# Quantized octahedral half-cells (6 polarities — face centers only)
+# ---------------------------------------------------------------------------
+#
+# SC corner index (unit cube) — used only to locate face centroids:
+#   0:(0,0,0) 1:(1,0,0) 2:(1,1,0) 3:(0,1,0)
+#   4:(0,0,1) 5:(1,0,1) 6:(1,1,1) 7:(0,1,1)
+#
+# Octahedral nodes = 6 face centers (local face index):
+#   0: −Z (0,1,2,3)    1: +Z (4,5,6,7)
+#   2: −Y (0,1,5,4)    3: +Y (3,2,6,7)
+#   4: −X (0,3,7,4)    5: +X (1,2,6,5)
+#
+# Full octahedral connects only adjacent face pairs (share an edge) — never
+# parallel opposite faces (0–1, 2–3, 4–5).
+#
+# Each Half_* is the square-pyramid leaf of that octahedron:
+#   - keep one face-center apex (solid side)
+#   - keep four equatorial face centers (mid-plane diamond)
+#   - omit the opposite (empty) face center
+#   - NO midplane hub / NO braces through opposite diamond corners
+# Adjacent cells share face-center coordinates and weld — no transitions.
+
+# Local connectivity (apex=0, diamond=1..4) — octahedral adjacent pairs only:
+#   - 4 spokes apex→diamond          (INTERNAL) — apex shares an edge with each
+#   - 4 perimeter edges of diamond   (NATIVE SURFACE DUAL) — adjacent sides only
+# Diagonals 1–3 / 2–4 (opposite faces) are intentionally absent.
+_HALF_SPOKES: tuple[tuple[int, int], ...] = (
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+)
+_HALF_DIAMOND_CYCLE: tuple[tuple[int, int], ...] = (
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (4, 1),
+)
+_HALF_STRUTS: tuple[tuple[int, int], ...] = _HALF_SPOKES + _HALF_DIAMOND_CYCLE
+assert len(_HALF_STRUTS) == 8
+
+# Local node i ← global face-center index (apex first, then diamond cycle)
+# Z cut: equatorial diamond faces 2,5,3,4
+_HALF_NEG_Z_FACE_INDICES: tuple[int, ...] = (0, 2, 5, 3, 4)  # apex −Z; omit +Z
+_HALF_POS_Z_FACE_INDICES: tuple[int, ...] = (1, 2, 5, 3, 4)  # apex +Z; omit −Z
+# X cut: equatorial diamond faces 0,2,1,3
+_HALF_NEG_X_FACE_INDICES: tuple[int, ...] = (4, 0, 2, 1, 3)  # apex −X; omit +X
+_HALF_POS_X_FACE_INDICES: tuple[int, ...] = (5, 0, 2, 1, 3)  # apex +X; omit −X
+# Y cut: equatorial diamond faces 0,5,1,4
+_HALF_NEG_Y_FACE_INDICES: tuple[int, ...] = (2, 0, 5, 1, 4)  # apex −Y; omit +Y
+_HALF_POS_Y_FACE_INDICES: tuple[int, ...] = (3, 0, 5, 1, 4)  # apex +Y; omit −Y
+
+# Back-compat aliases (legacy unsigned names = negative polarity)
+_HALF_Z_FACE_INDICES = _HALF_NEG_Z_FACE_INDICES
+_HALF_X_FACE_INDICES = _HALF_NEG_X_FACE_INDICES
+_HALF_Y_FACE_INDICES = _HALF_NEG_Y_FACE_INDICES
+_HALF_Z_SPOKES = _HALF_SPOKES
+_HALF_Z_DIAMOND_CYCLE = _HALF_DIAMOND_CYCLE
+
+
+# ---------------------------------------------------------------------------
+# Explicit surface-dual tags (Task 15) — no coincidence extraction
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LeafSurfaceSpec:
+    """
+    Explicit surface membership for one octahedral leaf rule.
+
+    Half:
+      - surface nodes = mid-plane diamond corners only (locals 1–4)
+      - native surface struts = diamond perimeter only (not apex spokes)
+    Full:
+      - surface nodes = exposed face centers only (candidates 0–5, filtered later)
+      - native surface struts = none (manifold stitcher supplies dual)
+    """
+
+    surface_node_locals: tuple[int, ...]
+    native_surface_strut_locals: tuple[tuple[int, int], ...]
+    exposed_candidate_locals: tuple[int, ...] = ()
+    local_to_face_index: tuple[int, ...] = ()
+
+
+_HALF_SURFACE_NODE_LOCALS: tuple[int, ...] = (1, 2, 3, 4)
+
+
+def _half_surface_spec(face_indices: tuple[int, ...]) -> LeafSurfaceSpec:
+    # face_indices[0]=apex, [1:5]=diamond (5 nodes total; no midplane hub)
+    local_to_face = tuple(int(fi) for fi in face_indices)
+    return LeafSurfaceSpec(
+        surface_node_locals=_HALF_SURFACE_NODE_LOCALS,
+        native_surface_strut_locals=_HALF_DIAMOND_CYCLE,
+        exposed_candidate_locals=(),
+        local_to_face_index=local_to_face,
+    )
+
+
+_FULL_SURFACE_SPEC = LeafSurfaceSpec(
+    surface_node_locals=(),
+    native_surface_strut_locals=(),
+    exposed_candidate_locals=(0, 1, 2, 3, 4, 5),
+    local_to_face_index=(0, 1, 2, 3, 4, 5),
+)
+
+_HALF_SURFACE_SPECS: dict[str, LeafSurfaceSpec] = {
+    "octahedral_half_neg_z": _half_surface_spec(_HALF_NEG_Z_FACE_INDICES),
+    "octahedral_half_pos_z": _half_surface_spec(_HALF_POS_Z_FACE_INDICES),
+    "octahedral_half_neg_x": _half_surface_spec(_HALF_NEG_X_FACE_INDICES),
+    "octahedral_half_pos_x": _half_surface_spec(_HALF_POS_X_FACE_INDICES),
+    "octahedral_half_neg_y": _half_surface_spec(_HALF_NEG_Y_FACE_INDICES),
+    "octahedral_half_pos_y": _half_surface_spec(_HALF_POS_Y_FACE_INDICES),
+    "octahedral_half_z": _half_surface_spec(_HALF_NEG_Z_FACE_INDICES),
+    "octahedral_half_x": _half_surface_spec(_HALF_NEG_X_FACE_INDICES),
+    "octahedral_half_y": _half_surface_spec(_HALF_NEG_Y_FACE_INDICES),
+}
+
+
+def leaf_surface_spec_for_rule(rule_name: str) -> LeafSurfaceSpec | None:
+    """Return explicit surface tags for a registered octahedral leaf rule."""
+    n = str(rule_name).strip().lower()
+    if n == "octahedral":
+        return _FULL_SURFACE_SPEC
+    return _HALF_SURFACE_SPECS.get(n)
+
+
+def _apply_octahedral_half(
+    coords: np.ndarray,
+    face_indices: tuple[int, ...],
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Half octahedral leaf = square pyramid (adjacent face pairs only).
+
+    Node layout (template for every polarity, e.g. half_z)::
+
+        0     apex (solid-side face center)
+        1..4  mid-plane diamond corners (equatorial face centers)
+
+    Struts: 4 apex spokes + 4 diamond perimeter edges.
+    Never connects parallel opposite faces (no diamond diagonals, no hub).
+    """
+    coords = _validate(coords)
+    face_ctrs = _hex_face_centers(coords)
+    nodes = face_ctrs[list(face_indices)]
+    struts = np.array(_HALF_STRUTS, dtype=np.int64)
+    return nodes, struts
+
+
+def apply_hex_octahedral_half_neg_z(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep −Z apex (face 0); omit +Z. Diamond: faces 2,5,3,4."""
+    return _apply_octahedral_half(coords, _HALF_NEG_Z_FACE_INDICES)
+
+
+def apply_hex_octahedral_half_pos_z(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep +Z apex (face 1); omit −Z. Diamond: faces 2,5,3,4."""
+    return _apply_octahedral_half(coords, _HALF_POS_Z_FACE_INDICES)
+
+
+def apply_hex_octahedral_half_neg_x(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep −X apex (face 4); omit +X. Diamond: faces 0,2,1,3."""
+    return _apply_octahedral_half(coords, _HALF_NEG_X_FACE_INDICES)
+
+
+def apply_hex_octahedral_half_pos_x(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep +X apex (face 5); omit −X. Diamond: faces 0,2,1,3."""
+    return _apply_octahedral_half(coords, _HALF_POS_X_FACE_INDICES)
+
+
+def apply_hex_octahedral_half_neg_y(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep −Y apex (face 2); omit +Y. Diamond: faces 0,5,1,4."""
+    return _apply_octahedral_half(coords, _HALF_NEG_Y_FACE_INDICES)
+
+
+def apply_hex_octahedral_half_pos_y(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep +Y apex (face 3); omit −Y. Diamond: faces 0,5,1,4."""
+    return _apply_octahedral_half(coords, _HALF_POS_Y_FACE_INDICES)
+
+
+# Legacy unsigned names → negative polarity (historical default).
+apply_hex_octahedral_half_z = apply_hex_octahedral_half_neg_z
+apply_hex_octahedral_half_x = apply_hex_octahedral_half_neg_x
+apply_hex_octahedral_half_y = apply_hex_octahedral_half_neg_y
+
+
 def apply_hex_star(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     coords = _validate(coords)
     centroid = _hex_centroid(coords)
@@ -93,6 +280,31 @@ def apply_hex_octet_truss(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             strut_list.append((corner, fc_idx))
     for a, b in _ADJACENT_FACE_PAIRS:
         strut_list.append((8 + a, 8 + b))
+    return nodes, np.array(strut_list, dtype=np.int64)
+
+
+def apply_hex_cross(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Cross unit cell: 14 nodes (8 corners + 6 face centers).
+    24 face-center-to-corner spokes (C-F 'X' crosses on 6 faces)
+    plus 12 box edge struts (C-C), with no central octahedral diamond.
+    """
+    coords = _validate(coords)
+    face_ctrs = _hex_face_centers(coords)
+    nodes = np.vstack((coords, face_ctrs))
+    strut_list: list[tuple[int, int]] = []
+    # 24 C-F spokes (face diagonals / cross on 6 faces)
+    for fi, face in enumerate(_HEX_FACES):
+        fc_idx = 8 + fi
+        for corner in face:
+            strut_list.append((corner, fc_idx))
+    # 12 C-C edge struts
+    for a, b in (
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+    ):
+        strut_list.append((a, b))
     return nodes, np.array(strut_list, dtype=np.int64)
 
 

@@ -563,6 +563,201 @@ def extract_unit_cube_xz_wss_slice(
     return wss_sl, u_x_sl, u_z_sl, mask_sl, peak
 
 
+def smooth_interface_slice_for_display(
+    field: np.ndarray,
+    solid_mask: np.ndarray,
+    *,
+    sigma: float,
+    support_threshold: float = 0.08,
+) -> np.ndarray:
+    """
+    Mask-aware normalized Gaussian blur for sparse interface fields.
+
+  Visualization only — does not change cached metrics or the underlying LBM
+  solve. Spreads each non-zero sample over neighboring fluid voxels without
+  bleeding into solid cells.
+    """
+    if sigma <= 0.0:
+        return field
+
+    from scipy.ndimage import gaussian_filter
+
+    fluid = ~solid_mask
+    active = (field > 0.0) & fluid
+    if not np.any(active):
+        return field
+
+    values = np.where(active, field, 0.0).astype(np.float64)
+    weight = active.astype(np.float64)
+    num = gaussian_filter(values, sigma=sigma, mode="nearest")
+    den = gaussian_filter(weight, sigma=sigma, mode="nearest")
+    smoothed = np.divide(num, den, out=np.zeros_like(num), where=den > 1e-8)
+    smoothed = np.where(solid_mask | (den < support_threshold), 0.0, smoothed)
+    return smoothed.astype(np.float32, copy=False)
+
+
+def upsample_slice_for_display(
+    field: np.ndarray,
+    solid_mask: np.ndarray,
+    *,
+    factor: int,
+    order: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Upsample a sparse 2D interface slice for display-only colormap rendering.
+
+    The solid mask is nearest-neighbor upsampled so walls stay sharp; scalar
+    fields use bilinear (order=1) or bicubic (order=3) interpolation. Values
+    are cleared inside solid cells after resampling.
+    """
+    if factor <= 1:
+        return field, solid_mask
+
+    from scipy.ndimage import zoom
+
+    factors = (int(factor), int(factor))
+    mask_up = zoom(solid_mask.astype(np.float32), factors, order=0) >= 0.5
+    fluid = ~solid_mask
+    values = np.where((field > 0.0) & fluid, field, 0.0).astype(np.float32)
+    field_up = zoom(values, factors, order=int(order))
+    field_up = np.where(mask_up, 0.0, field_up)
+    return np.clip(field_up, 0.0, None), mask_up
+
+
+def _upsample_velocity_slice_for_display(
+    u_x_slice: np.ndarray,
+    u_z_slice: np.ndarray,
+    solid_mask: np.ndarray,
+    *,
+    factor: int,
+    order: int = 1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if factor <= 1:
+        return u_x_slice, u_z_slice, solid_mask
+
+    from scipy.ndimage import zoom
+
+    factors = (int(factor), int(factor))
+    mask_up = zoom(solid_mask.astype(np.float32), factors, order=0) >= 0.5
+    u_x = np.where(solid_mask, 0.0, u_x_slice).astype(np.float32)
+    u_z = np.where(solid_mask, 0.0, u_z_slice).astype(np.float32)
+    u_x_up = zoom(u_x, factors, order=int(order))
+    u_z_up = zoom(u_z, factors, order=int(order))
+    u_x_up = np.where(mask_up, 0.0, u_x_up)
+    u_z_up = np.where(mask_up, 0.0, u_z_up)
+    return u_x_up, u_z_up, mask_up
+
+
+def unit_cube_midplane_y_mm(grid: VoxelGrid) -> float:
+    """Physical Y coordinate (mm) of the Vocal grid mid-plane slice."""
+    j_mid = grid.ny // 2
+    return (j_mid + 0.5) * float(grid.voxel_size_mm)
+
+
+def stl_path_from_vocal_cache(cache_dir: Path) -> Path | None:
+    manifest_path = Path(cache_dir) / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stl = manifest.get("fingerprint", {}).get("stl_path")
+    return Path(stl) if stl else None
+
+
+def rasterize_stl_xz_section(
+    stl_path: str | Path,
+    *,
+    y_mm: float,
+    n_x: int,
+    n_z: int,
+) -> np.ndarray:
+    """
+    Rasterize an STL Y-normal slice over the unit-cube XZ plane [0, 1]² mm.
+
+    Returns a boolean solid mask with shape ``(n_x, n_z)`` suitable for smooth
+    display geometry (vector slice, not Vocal voxels).
+    """
+    import trimesh
+    from matplotlib.path import Path as MPath
+
+    mesh = trimesh.load(str(stl_path), force="mesh")
+    section = mesh.section(
+        plane_origin=[0.0, float(y_mm), 0.0],
+        plane_normal=[0.0, 1.0, 0.0],
+    )
+    if section is None:
+        return np.zeros((int(n_x), int(n_z)), dtype=bool)
+
+    path2d, to_3d = section.to_planar()
+    to_2d = np.linalg.inv(to_3d)
+    xs = (np.arange(n_x) + 0.5) / float(n_x)
+    zs = (np.arange(n_z) + 0.5) / float(n_z)
+    x_grid, z_grid = np.meshgrid(xs, zs, indexing="ij")
+    pts3d = np.column_stack(
+        [x_grid.ravel(), np.full(x_grid.size, float(y_mm)), z_grid.ravel()]
+    )
+    pts2d = trimesh.transformations.transform_points(pts3d, to_2d)[:, :2]
+
+    inside = np.zeros(len(pts2d), dtype=bool)
+    for entity in path2d.entities:
+        verts = path2d.vertices[entity.points]
+        if len(verts) >= 3 and getattr(entity, "closed", True):
+            inside |= MPath(verts).contains_points(pts2d)
+    return inside.reshape(int(n_x), int(n_z))
+
+
+def stamp_wss_on_stl_section(
+    wss_slice: np.ndarray,
+    stl_solid: np.ndarray,
+    *,
+    display_factor: int = 4,
+    display_order: int = 1,
+    smooth_sigma: float = 0.0,
+    interface_band_px: float = 2.0,
+) -> np.ndarray:
+    """
+    Interpolate a coarse Vocal WSS slice onto a fine STL cross-section grid.
+
+    WSS is upsampled from the simulation slice, lightly smoothed, then stamped
+    into a narrow fluid band adjacent to the smooth STL wall. Visualization
+    only — metrics remain tied to the Vocal voxel solve.
+    """
+    from scipy.ndimage import distance_transform_edt, zoom
+
+    factor = max(1, int(display_factor))
+    n_x = wss_slice.shape[0] * factor
+    n_z = wss_slice.shape[1] * factor
+
+    if stl_solid.shape != (n_x, n_z):
+        stl_solid = (
+            zoom(
+                stl_solid.astype(np.float32),
+                (n_x / stl_solid.shape[0], n_z / stl_solid.shape[1]),
+                order=0,
+            )
+            >= 0.5
+        )
+
+    empty_mask = np.zeros_like(wss_slice, dtype=bool)
+    wss_up, _ = upsample_slice_for_display(
+        wss_slice,
+        empty_mask,
+        factor=factor,
+        order=int(display_order),
+    )
+    if smooth_sigma > 0.0:
+        wss_up = smooth_interface_slice_for_display(
+            wss_up,
+            stl_solid,
+            sigma=float(smooth_sigma),
+        )
+
+    fluid = ~stl_solid
+    dist_px = distance_transform_edt(fluid)
+    band = (dist_px <= float(interface_band_px)) & fluid
+    stamped = np.where(band, wss_up, 0.0)
+    return np.where(stl_solid, 0.0, stamped).astype(np.float32, copy=False)
+
+
 def _draw_xz_wss_streamline_panel(
     ax,
     wss_slice: np.ndarray,
@@ -574,22 +769,85 @@ def _draw_xz_wss_streamline_panel(
     vmax: float | None = None,
     density: float = 1.15,
     colorbar: bool = True,
+    wss_smooth_sigma: float = 0.0,
+    wss_display_factor: int = 1,
+    wss_display_order: int = 1,
+    stl_solid_mask: np.ndarray | None = None,
 ) -> float:
     """XZ slice: WSS magnitude (turbo) on black; only interface WSS bands are colored."""
-    n_x, n_z = wss_slice.shape
-    extent = [0, n_x, 0, n_z]
+    n_x_phys, n_z_phys = wss_slice.shape
     fluid = ~mask_slice
     active = wss_slice[fluid]
-    peak = float(np.max(active)) if active.size > 0 else 0.0
-    if peak <= 0.0:
+    raw_peak = float(np.max(active)) if active.size > 0 else 0.0
+    if raw_peak <= 0.0:
         ax.set_title(f"{title}\n(no WSS in slice)")
         ax.axis("off")
         return 0.0
 
-    plot_vmax = vmax if vmax is not None else peak
-    wss_plot = np.ma.masked_where(mask_slice | (wss_slice <= 0.0), wss_slice)
+    display_factor = max(1, int(wss_display_factor))
+    geometry_mask = mask_slice
+    plot_field = wss_slice
+    u_x_plot_src = u_x_slice
+    u_z_plot_src = u_z_slice
+
+    if stl_solid_mask is not None:
+        plot_field = stamp_wss_on_stl_section(
+            wss_slice,
+            stl_solid_mask,
+            display_factor=display_factor,
+            display_order=int(wss_display_order),
+            smooth_sigma=float(wss_smooth_sigma),
+            interface_band_px=max(2.0, 0.75 * display_factor),
+        )
+        geometry_mask = stl_solid_mask
+        if geometry_mask.shape != plot_field.shape:
+            from scipy.ndimage import zoom
+
+            geometry_mask = (
+                zoom(
+                    geometry_mask.astype(np.float32),
+                    (
+                        plot_field.shape[0] / geometry_mask.shape[0],
+                        plot_field.shape[1] / geometry_mask.shape[1],
+                    ),
+                    order=0,
+                )
+                >= 0.5
+            )
+        u_x_plot_src, u_z_plot_src, _ = _upsample_velocity_slice_for_display(
+            u_x_slice,
+            u_z_slice,
+            mask_slice,
+            factor=display_factor,
+            order=int(wss_display_order),
+        )
+    else:
+        if wss_smooth_sigma > 0.0:
+            plot_field = smooth_interface_slice_for_display(
+                wss_slice,
+                mask_slice,
+                sigma=float(wss_smooth_sigma),
+            )
+        if display_factor > 1:
+            plot_field, geometry_mask = upsample_slice_for_display(
+                plot_field,
+                mask_slice,
+                factor=display_factor,
+                order=int(wss_display_order),
+            )
+            u_x_plot_src, u_z_plot_src, _ = _upsample_velocity_slice_for_display(
+                u_x_slice,
+                u_z_slice,
+                mask_slice,
+                factor=display_factor,
+                order=int(wss_display_order),
+            )
+
+    plot_vmax = vmax if vmax is not None else raw_peak
+    wss_plot = np.ma.masked_where(geometry_mask | (plot_field <= 0.0), plot_field)
     cmap_obj = plt.get_cmap("turbo").copy()
     cmap_obj.set_bad(color="black")
+    extent = [0, n_x_phys, 0, n_z_phys]
     ax.imshow(
         (wss_plot / (plot_vmax + 1e-15)).T,
         cmap=cmap_obj,
@@ -601,11 +859,12 @@ def _draw_xz_wss_streamline_panel(
         interpolation="nearest",
     )
 
-    x = np.arange(n_x) + 0.5
-    z = np.arange(n_z) + 0.5
-    u_x_plot = np.ma.masked_where(mask_slice, u_x_slice)
-    u_z_plot = np.ma.masked_where(mask_slice, u_z_slice)
-    if np.any(~mask_slice):
+    n_x_up, n_z_up = plot_field.shape
+    x = (np.arange(n_x_up) + 0.5) * (n_x_phys / n_x_up)
+    z = (np.arange(n_z_up) + 0.5) * (n_z_phys / n_z_up)
+    u_x_plot = np.ma.masked_where(geometry_mask, u_x_plot_src)
+    u_z_plot = np.ma.masked_where(geometry_mask, u_z_plot_src)
+    if np.any(~geometry_mask):
         ax.streamplot(
             x,
             z,
@@ -621,19 +880,26 @@ def _draw_xz_wss_streamline_panel(
     ax.tick_params(colors="0.85")
     ax.xaxis.label.set_color("0.85")
     ax.yaxis.label.set_color("0.85")
-    ax.set_xlim(0, n_x)
-    ax.set_ylim(0, n_z)
+    ax.set_xlim(0, n_x_phys)
+    ax.set_ylim(0, n_z_phys)
     ax.set_xlabel("X (voxels)")
     ax.set_ylabel("Z (voxels)")
+    display_note = ""
+    if stl_solid_mask is not None:
+        display_note = f"  STL walls + Vocal stamp ×{display_factor}"
+    elif display_factor > 1:
+        display_note = f"  display ×{display_factor}"
+    elif wss_smooth_sigma > 0.0:
+        display_note = f"  display σ={wss_smooth_sigma:g} vox"
     ax.set_title(
-        f"{title}\nSlice peak WSS = {peak:.1f} Pa",
+        f"{title}\nSlice peak WSS = {raw_peak:.1f} Pa{display_note}",
         fontsize=10,
     )
     if colorbar:
         sm = ScalarMappable(cmap=cmap_obj, norm=Normalize(vmin=0.0, vmax=plot_vmax))
         sm.set_array([])
         plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, label="WSS (Pa)")
-    return peak
+    return raw_peak
 
 
 def plot_wss_comparison(
@@ -645,6 +911,10 @@ def plot_wss_comparison(
     shared_color_scale: bool = False,
     streamline_density: float = 1.15,
     device: str = "cuda",
+    wss_smooth_sigma: float = 0.0,
+    wss_display_factor: int = 1,
+    wss_display_order: int = 1,
+    use_stl_cross_section: bool = False,
 ) -> Path:
     """
     Side-by-side XZ mid-Y WSS comparison with velocity streamlines.
@@ -661,6 +931,8 @@ def plot_wss_comparison(
 
     slices: list[tuple] = []
     peaks: list[float] = []
+    stl_masks: list[np.ndarray | None] = []
+    display_factor = max(1, int(wss_display_factor))
     for case in cases:
         cache_dir = Path(case["vocal_cache"])
         grid, solver = load_solver_from_cache_dir(cache_dir, device=device)
@@ -679,10 +951,27 @@ def plot_wss_comparison(
         slices.append((wss_sl, mask_sl, u_x_sl, u_z_sl))
         peaks.append(peak)
 
+        stl_mask = None
+        if use_stl_cross_section:
+            stl_path = case.get("stl_path") or stl_path_from_vocal_cache(cache_dir)
+            if stl_path is None or not Path(stl_path).is_file():
+                raise FileNotFoundError(
+                    f"STL cross-section requested but no STL found for cache: {cache_dir}"
+                )
+            n_disp_x = wss_sl.shape[0] * display_factor
+            n_disp_z = wss_sl.shape[1] * display_factor
+            stl_mask = rasterize_stl_xz_section(
+                stl_path,
+                y_mm=unit_cube_midplane_y_mm(grid),
+                n_x=n_disp_x,
+                n_z=n_disp_z,
+            )
+        stl_masks.append(stl_mask)
+
     vmax = max(peaks) if shared_color_scale and peaks else None
 
-    for ax, case, (wss_sl, mask_sl, u_x_sl, u_z_sl) in zip(
-        axes, cases, slices, strict=True
+    for ax, case, (wss_sl, mask_sl, u_x_sl, u_z_sl), stl_mask in zip(
+        axes, cases, slices, stl_masks, strict=True
     ):
         _draw_xz_wss_streamline_panel(
             ax,
@@ -694,6 +983,10 @@ def plot_wss_comparison(
             vmax=vmax,
             density=streamline_density,
             colorbar=True,
+            wss_smooth_sigma=wss_smooth_sigma,
+            wss_display_factor=wss_display_factor,
+            wss_display_order=wss_display_order,
+            stl_solid_mask=stl_mask,
         )
 
     if suptitle is None:

@@ -161,7 +161,9 @@ def generate_a15_seeds(
 def generate_background_grid(
     grid_type: str,
     bounds: np.ndarray,
-    cell_size: float,
+    cell_size: float | tuple[float, float, float] | np.ndarray,
+    *,
+    origin_offset: float | tuple[float, float, float] | np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate integer-space background grid nodes and elements covering `bounds`.
@@ -172,8 +174,13 @@ def generate_background_grid(
         'A15' (tetrahedral) or 'SC' (hexahedral).
     bounds : (2, 3) ndarray
         Min and max bounding box coordinates [[min_x, min_y, min_z], [max_x, max_y, max_z]].
-    cell_size : float
-        Unit cell dimension.
+    cell_size : float or (3,) array-like
+        Unit cell dimensions. Anisotropic dimensions are supported for SC
+        grids; A15 still requires a scalar period.
+    origin_offset : float or (3,) array-like, optional
+        World-space phase shift (mm) applied to the integer lattice so corners
+        lie at ``origin_offset + (i, j, k) * cell_dims``. Default is zero.
+        Index ranges are recomputed so ``bounds`` remain fully covered.
 
     Returns
     -------
@@ -182,15 +189,38 @@ def generate_background_grid(
     """
     gtype = str(grid_type).strip().upper()
     min_bound, max_bound = np.asarray(bounds, dtype=np.float64)
-    padded_min = min_bound - 1.5 * cell_size
-    padded_max = max_bound + 1.5 * cell_size
+    cell_dims = np.asarray(cell_size, dtype=np.float64)
+    if cell_dims.ndim == 0:
+        cell_dims = np.full(3, float(cell_dims), dtype=np.float64)
+    if cell_dims.shape != (3,) or np.any(cell_dims <= 0.0):
+        raise ValueError(
+            "cell_size must be a positive scalar or three positive dimensions"
+        )
+    if gtype == "A15" and not np.allclose(cell_dims, cell_dims[0]):
+        raise ValueError("A15 background grids require a scalar cell_size")
 
-    min_ix = int(np.floor(padded_min[0] / cell_size))
-    max_ix = int(np.ceil(padded_max[0] / cell_size))
-    min_iy = int(np.floor(padded_min[1] / cell_size))
-    max_iy = int(np.ceil(padded_max[1] / cell_size))
-    min_iz = int(np.floor(padded_min[2] / cell_size))
-    max_iz = int(np.ceil(padded_max[2] / cell_size))
+    if origin_offset is None:
+        origin = np.zeros(3, dtype=np.float64)
+    else:
+        origin = np.asarray(origin_offset, dtype=np.float64)
+        if origin.ndim == 0:
+            origin = np.full(3, float(origin), dtype=np.float64)
+        if origin.shape != (3,):
+            raise ValueError("origin_offset must be a scalar or length-3 array")
+
+    # Index ranges in the shifted lattice frame so world coverage of bounds
+    # (with the usual 1.5-cell pad) is preserved.
+    padded_min = min_bound - 1.5 * cell_dims
+    padded_max = max_bound + 1.5 * cell_dims
+    local_min = padded_min - origin
+    local_max = padded_max - origin
+
+    min_ix = int(np.floor(local_min[0] / cell_dims[0]))
+    max_ix = int(np.ceil(local_max[0] / cell_dims[0]))
+    min_iy = int(np.floor(local_min[1] / cell_dims[1]))
+    max_iy = int(np.ceil(local_max[1] / cell_dims[1]))
+    min_iz = int(np.floor(local_min[2] / cell_dims[2]))
+    max_iz = int(np.ceil(local_max[2] / cell_dims[2]))
 
     if gtype == "A15":
         A15_BASIS = np.array([
@@ -259,7 +289,9 @@ def generate_background_grid(
                         t_indices = [get_or_add(p) for p in tet_int]
                         tets_out.append(t_indices)
 
-        grid_nodes = np.array(node_coords_int, dtype=np.float64) * (cell_size / 4.0)
+        grid_nodes = (
+            np.array(node_coords_int, dtype=np.float64) * (cell_dims[0] / 4.0)
+        ) + origin
         elements = np.array(tets_out, dtype=np.int64)
         return grid_nodes, elements
 
@@ -291,7 +323,7 @@ def generate_background_grid(
                     c_indices = [get_or_add(p) for p in voxel_corners]
                     cells_out.append(c_indices)
 
-        grid_nodes = np.array(node_coords_int, dtype=np.float64) * cell_size
+        grid_nodes = np.array(node_coords_int, dtype=np.float64) * cell_dims + origin
         elements = np.array(cells_out, dtype=np.int64)
         return grid_nodes, elements
 

@@ -23,7 +23,12 @@ import trimesh
 
 from .mesh_repair import repair_cad_mesh
 from .sizing_solver import solve_sizing
-from .geometry_module import union_lattice_with_spherical_joints, boolean_intersect_with_cad
+from .geometry_module import (
+    boolean_intersect_with_cad,
+    generate_rectangular_surface_cage,
+    union_lattice_with_spherical_joints,
+    union_solid_meshes,
+)
 
 
 class ScaffoldResult(NamedTuple):
@@ -167,9 +172,21 @@ def apply_depth_gated_relaxation(
     node_depths: np.ndarray,
     iterations: int = 15,
     alpha: float = 0.5,
+    max_depth: int | None = None,
+    layer1_weight: float = 1.0,
 ) -> np.ndarray:
     """
-    Applies depth-gated Laplacian smoothing to prevent interior collapse.
+    Apply constrained Laplacian smoothing after boundary projection.
+
+    Depth 0 is the conformed surface and remains fixed; all deeper nodes move at
+    full strength (``layer1_weight`` can damp the first layer if needed). Deep
+    interior nodes with symmetric neighborhoods self-limit — their neighbor
+    average equals their own position — so no rigid-core cap is required. If
+    ``max_depth`` is set, nodes deeper than that are frozen anyway.
+
+    The purpose is *radial* redistribution: projected boundary nodes compress or
+    stretch the outermost cell layer, and relaxation lets successive interior
+    layers absorb that displacement instead of trapping it at the surface.
     """
     nodes_relaxed = nodes_ironed.copy()
     adj = defaultdict(list)
@@ -177,17 +194,17 @@ def apply_depth_gated_relaxation(
         adj[u].append(v)
         adj[v].append(u)
 
-    # Compute relaxation weight based on depth
-    # Depth = 0 (boundary conformed): weight = 0.0 (fixed)
-    # Depth = 1: weight = 0.25
-    # Depth >= 2: weight = 1.0 (full relaxation)
+    # Depth 0 (boundary conformed): fixed. Depth 1: layer1_weight (default full).
+    # Depth >= 2: full relaxation, optionally capped by max_depth.
     weights = np.zeros(len(nodes_relaxed), dtype=np.float64)
     for i in range(len(nodes_relaxed)):
         d = node_depths[i]
-        if d == 0:
+        if d <= 0:
+            weights[i] = 0.0
+        elif max_depth is not None and d > int(max_depth):
             weights[i] = 0.0
         elif d == 1:
-            weights[i] = 0.25
+            weights[i] = float(layer1_weight)
         else:
             weights[i] = 1.0
 
@@ -256,9 +273,276 @@ def _rotation_matrix_from_z(vec: np.ndarray) -> np.ndarray:
     return rotation_matrix
 
 
+def _generate_sc_modular_lattice(
+    cad_filepath: str | trimesh.Trimesh,
+    cell_size: float | tuple[float, float, float] | np.ndarray,
+    strut_radius: float,
+    export_dir: str,
+    skin_only: bool,
+    skin_output_name: str | None,
+    skip_sweep: bool,
+    signed_distance_fn: Callable[[np.ndarray], np.ndarray] | None,
+    mode: str,
+    volume_fraction_threshold: float,
+    rule_name: str,
+    start_time: float,
+    sphere_center: np.ndarray | tuple[float, float, float] | None = None,
+    sphere_radius: float | None = None,
+    relax_layers: int | None = None,
+    relax_iterations: int = 15,
+    relax_alpha: float = 0.5,
+    relax_mode: str = "laplacian",
+    max_projection_factor: float | None = 1.0,
+    projection_mode: str = "closest",
+    snap_outside_nodes: bool = True,
+    cull_collapsed_hexes: bool = False,
+    surface_cage_profile: str = "rectangular",
+    surface_cage_width: float | None = None,
+    surface_cage_thickness: float | None = None,
+    surface_cage_normal_oversize: float = 0.25,
+    surface_cage_project_stations: bool = True,
+) -> dict[str, any]:
+    """
+    Modular SC path:
+      VF cull → morph hex cage to CAD → stamp volume rule into deformed bricks
+      → surface skin on deformed scaffold.
+
+    Boolean mode skips cage morph / skin (debug/fast).
+    """
+    from graphite.explicit.conformal_core import (
+        cull_hex_elements,
+        generate_sc_volume_topology,
+        merge_surface_skin,
+        morph_hex_scaffold,
+    )
+    from graphite.explicit.hex_topology_module import get_hex_topology_rule
+
+    if isinstance(cad_filepath, trimesh.Trimesh):
+        cad_mesh = repair_cad_mesh(cad_filepath)
+        part_name = "mesh"
+    else:
+        raw_mesh = trimesh.load(cad_filepath)
+        print(f"\nRepairing part geometry: {cad_filepath}")
+        cad_mesh = repair_cad_mesh(raw_mesh)
+        part_name = Path(cad_filepath).stem
+
+    rule = get_hex_topology_rule(rule_name)
+    print(
+        f"Processing conformed lattice (SC/{rule.name}, mode={mode}) for part: {part_name}"
+    )
+    print(f"  CAD bounds: {cad_mesh.bounds}")
+    print(
+        f"  Policy: conform_dofs={sorted(rule.conform_dofs)} "
+        f"skin_mode={rule.skin_mode} valency_cutoff={rule.valency_cutoff}"
+    )
+
+    hex_elems, _grid_nodes, _surviving, _n_partial = cull_hex_elements(
+        cad_mesh,
+        cell_size,
+        volume_fraction_threshold=volume_fraction_threshold,
+        mode=mode,
+        signed_distance_fn=signed_distance_fn,
+    )
+
+    boundary_faces_count = 0
+    cyan_struts = np.empty((0, 2), dtype=np.int64)
+
+    if mode == "conformal":
+        # 1) Morph the hex cage (corners ironed; near-surface corners relaxed).
+        # 2) Stamp the unit-cell rule into deformed bricks (trilinear morph of contents).
+        hex_elems, scaffold_report = morph_hex_scaffold(
+            hex_elems,
+            cad_mesh,
+            valency_cutoff=int(rule.valency_cutoff),
+            sphere_center=sphere_center,
+            sphere_radius=sphere_radius,
+            relax_layers=relax_layers,
+            relax_iterations=relax_iterations,
+            relax_alpha=relax_alpha,
+            relax_mode=relax_mode,
+            cell_size=cell_size,
+            max_projection_factor=max_projection_factor,
+            projection_mode=projection_mode,
+            snap_outside_nodes=snap_outside_nodes,
+            cull_collapsed_hexes=cull_collapsed_hexes,
+        )
+        boundary_faces_count = int(scaffold_report["n_exterior_iron"])
+        print(
+            f"  Cage morph complete ({scaffold_report.get('relax_mode', 'laplacian')}): "
+            f"exposed corners projected="
+            f"{scaffold_report['n_exterior_iron']}"
+            f" (max disp={scaffold_report.get('max_projection_distance', 0):.4g}); "
+            f"relaxed interior nodes={scaffold_report.get('n_relaxed_layer_nodes', 0)}"
+            + (
+                " (all layers)"
+                if scaffold_report.get("relax_layers", -1) == -1
+                else f" (capped at depth {scaffold_report.get('relax_layers')})"
+            )
+            + (
+                f"; radial L_r={scaffold_report.get('radial_rest_length', 0):.3g}, "
+                f"slide={scaffold_report.get('n_surface_slide', 0)}"
+                if scaffold_report.get("relax_mode") == "radial_equalize"
+                else ""
+            )
+        )
+
+        nodes_3d, volume_struts, rule = generate_sc_volume_topology(hex_elems, rule.name)
+        print(
+            f"  Volume topology stamped into deformed hexes ({rule.name}): "
+            f"{len(nodes_3d)} nodes, {len(volume_struts)} struts"
+        )
+
+        # Surface skin on the *deformed* scaffold (same hex cage).
+        skin_nodes, cyan_struts = merge_surface_skin(hex_elems, nodes_3d, rule)
+        if len(skin_nodes) > len(nodes_3d):
+            n_extra = len(skin_nodes) - len(nodes_3d)
+            nodes_3d = skin_nodes
+            print(f"  Appended {n_extra} skin-only nodes")
+        print(f"  Surface skin struts: {len(cyan_struts)}")
+
+        # Volume nodes already sit in the morphed cage — do not re-snap interiors.
+        nodes_relaxed = nodes_3d
+        red_struts = volume_struts.copy()
+        struts = volume_struts
+    else:
+        # boolean / debug: undeformed stamp only
+        nodes_3d, volume_struts, rule = generate_sc_volume_topology(hex_elems, rule.name)
+        print(
+            f"  Volume topology ({rule.name}): {len(nodes_3d)} nodes, "
+            f"{len(volume_struts)} struts"
+        )
+        cyan_struts = np.empty((0, 2), dtype=np.int64)
+        red_struts = volume_struts.copy()
+        nodes_relaxed = nodes_3d.copy()
+        struts = volume_struts
+
+    if skip_sweep:
+        return {
+            "nodes_count": len(nodes_relaxed),
+            "struts_count": len(struts),
+            "boundary_faces_count": boundary_faces_count,
+            "cyan_struts_count": len(cyan_struts),
+            "red_struts_count": len(red_struts),
+            "elapsed_time": time.time() - start_time,
+            "nodes_relaxed": nodes_relaxed,
+            "cyan_struts": cyan_struts,
+            "red_struts": red_struts,
+            "volume_struts": np.asarray(volume_struts, dtype=np.int64),
+            "skin_struts": np.asarray(cyan_struts, dtype=np.int64),
+            "rule_name": rule.name,
+            "mode": mode,
+        }
+
+    cage_profile = str(surface_cage_profile).strip().lower()
+    if cage_profile not in ("rectangular", "cylindrical"):
+        raise ValueError(
+            "surface_cage_profile must be 'rectangular' or 'cylindrical'; "
+            f"got {surface_cage_profile!r}"
+        )
+    cage_width = (
+        2.0 * float(strut_radius)
+        if surface_cage_width is None
+        else float(surface_cage_width)
+    )
+    cage_thickness = (
+        0.5 * cage_width
+        if surface_cage_thickness is None
+        else float(surface_cage_thickness)
+    )
+
+    core_manifold = None
+    skin_manifold = None
+    skin_raw = None
+    if not skin_only and len(red_struts) > 0:
+        core_manifold = sweep_to_manifold(nodes_relaxed, red_struts, radius=strut_radius)
+    if len(cyan_struts) > 0:
+        if cage_profile == "rectangular":
+            skin_raw = generate_rectangular_surface_cage(
+                nodes_relaxed,
+                cyan_struts,
+                cad_mesh,
+                width=cage_width,
+                thickness=cage_thickness,
+                normal_oversize=float(surface_cage_normal_oversize),
+                crop_to_boundary=False,
+                project_stations=bool(surface_cage_project_stations),
+            )
+            skin_manifold, _ = boolean_intersect_with_cad(skin_raw, cad_mesh)
+        else:
+            skin_manifold = sweep_to_manifold(
+                nodes_relaxed, cyan_struts, radius=1.5 * strut_radius
+            )
+
+    os.makedirs(export_dir, exist_ok=True)
+    if skin_only:
+        skin_fname = skin_output_name or f"{part_name}_surface_dual.stl"
+        skin_path = os.path.join(export_dir, skin_fname)
+        if skin_manifold is not None:
+            skin_manifold.export(skin_path)
+        else:
+            trimesh.Trimesh().export(skin_path)
+    else:
+        combined_lattice = None
+        if core_manifold is not None and skin_manifold is not None:
+            if cage_profile == "rectangular":
+                # Baseball cleanup recipe generalized to arbitrary CAD:
+                # union cylindrical core with outward-oversized cage, then
+                # intersect the complete solid with CAD for a flush interface.
+                combined_lattice = union_solid_meshes([core_manifold, skin_raw])
+                combined_lattice, _ = boolean_intersect_with_cad(
+                    combined_lattice, cad_mesh
+                )
+            else:
+                combined_lattice, _ = union_lattice_with_spherical_joints(
+                    nodes_relaxed,
+                    np.vstack([red_struts, cyan_struts]),
+                    np.hstack(
+                        [
+                            np.full(len(red_struts), strut_radius),
+                            np.full(len(cyan_struts), 1.5 * strut_radius),
+                        ]
+                    ),
+                )
+        elif core_manifold is not None:
+            combined_lattice = core_manifold
+        elif skin_manifold is not None:
+            combined_lattice = skin_manifold
+
+        # Boolean trim only on explicit boolean mode (debug/fast). Conformal default
+        # relies on ironing + skin; optional intersect remains available for boolean.
+        if combined_lattice is not None and mode == "boolean":
+            combined_lattice, _ = boolean_intersect_with_cad(combined_lattice, cad_mesh)
+
+        lattice_path = os.path.join(export_dir, f"{part_name}_conformal_lattice.stl")
+        if combined_lattice is not None:
+            combined_lattice.export(lattice_path)
+        else:
+            trimesh.Trimesh().export(lattice_path)
+
+        skin_path = os.path.join(export_dir, f"{part_name}_boundary_skin.stl")
+        if skin_manifold is not None:
+            skin_manifold.export(skin_path)
+        else:
+            trimesh.Trimesh().export(skin_path)
+
+    return {
+        "nodes_count": len(nodes_relaxed),
+        "struts_count": len(struts),
+        "boundary_faces_count": boundary_faces_count,
+        "cyan_struts_count": len(cyan_struts),
+        "red_struts_count": len(red_struts),
+        "elapsed_time": time.time() - start_time,
+        "rule_name": rule.name,
+        "mode": mode,
+        "surface_cage_profile": cage_profile,
+        "surface_cage_width": cage_width,
+        "surface_cage_thickness": cage_thickness,
+    }
+
+
 def generate_conformal_lattice(
     cad_filepath: str | trimesh.Trimesh,
-    cell_size: float,
+    cell_size: float | tuple[float, float, float] | np.ndarray,
     strut_radius: float,
     lattice_type: str = "A15",
     export_dir: str = "output",
@@ -268,12 +552,115 @@ def generate_conformal_lattice(
     skip_sweep: bool = False,
     signed_distance_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     mode: str = "conformal",
+    volume_fraction_threshold: float = 1.0,
+    rule_name: str = "octahedral",
+    sphere_center: np.ndarray | tuple[float, float, float] | None = None,
+    sphere_radius: float | None = None,
+    relax_layers: int | None = None,
+    relax_iterations: int = 15,
+    relax_alpha: float = 0.5,
+    relax_mode: str = "laplacian",
+    max_projection_factor: float | None = 1.0,
+    projection_mode: str = "closest",
+    snap_outside_nodes: bool = True,
+    cull_collapsed_hexes: bool = False,
+    surface_cage_profile: str = "rectangular",
+    surface_cage_width: float | None = None,
+    surface_cage_thickness: float | None = None,
+    surface_cage_normal_oversize: float = 0.25,
+    surface_cage_project_stations: bool = True,
 ) -> dict[str, any]:
     """
-    Unified entry point to generate conformed lattices (A15 Kagome or SC Octahedral)
+    Unified entry point to generate conformed lattices (A15 Kagome or SC hex rules)
     without using GMSH.
+
+    Parameters
+    ----------
+    volume_fraction_threshold : float, optional
+        Fraction of face-centroids that must be inside the CAD mesh for a cell to
+        be retained. 1.0 (default) = all face-centroids inside. 0.5 = keep cells
+        where at least half of face-centroids are inside.
+    rule_name : str, optional
+        SC hex topology rule (ignored for A15). Default ``octahedral``.
+    mode : str, optional
+        ``conformal`` (default): iron boundary DOFs, relax, surface skin.
+        ``boolean``: volume topology only (debug/fast; no iron/relax/skin).
+    sphere_center, sphere_radius : optional
+        If both set (SC conformal), exposed hex corners use algebraic bidirectional
+        projection onto the sphere instead of mesh closest-point queries.
+    relax_layers : int or None, optional
+        If set, freeze scaffold nodes deeper than this many layers. Default None:
+        all interior nodes relax (deep symmetric interiors self-limit, so the
+        relaxation naturally redistributes radial boundary compression inward
+        without a rigid-core cap). Depth 0 (projected surface) is always fixed
+        under ``relax_mode="laplacian"``.
+    relax_iterations, relax_alpha : optional
+        For ``laplacian``: Jacobi iteration count and step size.
+        For ``radial_equalize``: spring iterations and step size (use ~300 / 0.2).
+    relax_mode : str, optional
+        ``laplacian`` (default) or experimental ``radial_equalize`` (sphere-only:
+        equalize radial edge lengths with exposed nodes fixed after projection).
+    max_projection_factor : float or None, optional
+        Bound on boundary-projection travel, as a multiple of the cell dimension
+        on each axis (default 1.0). Prefer ``None`` with ``cull_collapsed_hexes``
+        so corners reach the surface and crushed bricks are dropped afterward.
+    projection_mode : str, optional
+        ``closest`` (default) or ``face_normal``. Face-normal mode raycasts along
+        owning exposed-face normals so stair-step side walls beat the nearby
+        floor when a node sits on both.
+    snap_outside_nodes : bool, optional
+        Also iron scaffold corners that sit outside the CAD even when they are
+        not on an exposed face (shared edges between two partial cells).
+    cull_collapsed_hexes : bool, optional
+        After morph, drop hexes below ``collapse_warn_ratio`` of their original
+        volume (or inverted). Use with ``max_projection_factor=None``.
+    surface_cage_profile : str, optional
+        SC surface-solid profile. ``rectangular`` (default) keeps volume struts
+        cylindrical but sweeps the surface cage with uniform width/thickness,
+        outward oversizes it, then Boolean-trims it flush to CAD.
+    surface_cage_width, surface_cage_thickness : float, optional
+        Uniform cage dimensions. Width defaults to the cylindrical volume-strut
+        diameter, ``2 * strut_radius``; thickness defaults to half the width.
+        Thickness denotes retained inward depth after CAD trimming.
+    surface_cage_normal_oversize : float, optional
+        Additional outward stock before the final CAD intersection.
+    surface_cage_project_stations : bool, optional
+        If True (legacy), loft stations are re-projected onto the CAD. If False,
+        the cage follows the skin-node chords (expected when nodes are already
+        on the surface) and only samples CAD normals for bar orientation.
     """
     start_time = time.time()
+    if str(lattice_type).strip().upper() == "SC":
+        return _generate_sc_modular_lattice(
+            cad_filepath=cad_filepath,
+            cell_size=cell_size,
+            strut_radius=strut_radius,
+            export_dir=export_dir,
+            skin_only=skin_only,
+            skin_output_name=skin_output_name,
+            skip_sweep=skip_sweep,
+            signed_distance_fn=signed_distance_fn,
+            mode=mode,
+            volume_fraction_threshold=volume_fraction_threshold,
+            rule_name=rule_name,
+            start_time=start_time,
+            sphere_center=sphere_center,
+            sphere_radius=sphere_radius,
+            relax_layers=relax_layers,
+            relax_iterations=relax_iterations,
+            relax_alpha=relax_alpha,
+            relax_mode=relax_mode,
+            max_projection_factor=max_projection_factor,
+            projection_mode=projection_mode,
+            snap_outside_nodes=snap_outside_nodes,
+            cull_collapsed_hexes=cull_collapsed_hexes,
+            surface_cage_profile=surface_cage_profile,
+            surface_cage_width=surface_cage_width,
+            surface_cage_thickness=surface_cage_thickness,
+            surface_cage_normal_oversize=surface_cage_normal_oversize,
+            surface_cage_project_stations=surface_cage_project_stations,
+        )
+
     config = LATTICE_CONFIGS.get(lattice_type)
     if config is None:
         raise ValueError(f"Unknown lattice type: {lattice_type}. Supported: 'A15', 'SC'")
@@ -285,7 +672,7 @@ def generate_conformal_lattice(
 
     # 1. Load and repair CAD Mesh
     if isinstance(cad_filepath, trimesh.Trimesh):
-        cad_mesh = cad_filepath
+        cad_mesh = repair_cad_mesh(cad_filepath)
         part_name = "mesh"
     else:
         raw_mesh = trimesh.load(cad_filepath)
@@ -334,18 +721,26 @@ def generate_conformal_lattice(
         s_dists = safe_signed_distance(cad_mesh, all_centroids)
 
     kept_cells = []
+    n_partial = 0
     for i, cell in enumerate(cells):
         indices = cell_to_centroids_indices[i]
         c_dists = s_dists[indices]
+        n_faces = len(c_dists)
+        # safe_signed_distance: negative = inside, positive = outside
+        n_inside = int(np.sum(c_dists <= 1e-5))
+        inside_frac = n_inside / n_faces
+
         if mode == "boolean":
-            if np.any(c_dists >= -1e-5):
+            if n_inside > 0:
                 kept_cells.append(cell)
         else:
-            if np.all(c_dists >= -1e-5):
+            if inside_frac >= volume_fraction_threshold:
                 kept_cells.append(cell)
+                if inside_frac < 1.0:
+                    n_partial += 1
 
     surviving_cells = np.array(kept_cells)
-    print(f"  Surviving cells: {len(surviving_cells)} / {len(cells)}")
+    print(f"  Surviving cells: {len(surviving_cells)} / {len(cells)} ({n_partial} partial boundary cells retained)")
     if len(surviving_cells) == 0:
         raise ValueError("No cells survived trimming!")
 
@@ -502,6 +897,8 @@ def generate_conformal_lattice(
             "nodes_relaxed": nodes_relaxed,
             "cyan_struts": cyan_struts,
             "red_struts": red_struts,
+            # Full octahedral graph before boundary-node filtering (fills cell interiors).
+            "volume_struts": np.asarray(struts, dtype=np.int64),
         }
 
     # 10. Sweep and Export STLs
@@ -674,7 +1071,8 @@ def generate_conformal_scaffold(
     for i, cell in enumerate(cells):
         indices = cell_to_centroids_indices[i]
         c_dists = s_dists[indices]
-        if np.all(c_dists >= -1e-5):
+        # safe_signed_distance: negative = inside, positive = outside
+        if np.all(c_dists <= 1e-5):
             kept_cells.append(cell)
 
     surviving_cells = np.array(kept_cells)
@@ -746,15 +1144,14 @@ def generate_conformed_hex_scaffold(
     """
     cell_size = target_element_size
     min_bound, max_bound = mesh.bounds
-    padded_min = min_bound - 1.5 * cell_size
-    padded_max = max_bound + 1.5 * cell_size
 
-    min_ix = int(np.floor(padded_min[0] / cell_size))
-    max_ix = int(np.ceil(padded_max[0] / cell_size))
-    min_iy = int(np.floor(padded_min[1] / cell_size))
-    max_iy = int(np.ceil(padded_max[1] / cell_size))
-    min_iz = int(np.floor(padded_min[2] / cell_size))
-    max_iz = int(np.ceil(padded_max[2] / cell_size))
+    # Align grid indices directly to origin-based multiples of cell_size
+    min_ix = int(np.floor(min_bound[0] / cell_size))
+    max_ix = int(np.ceil(max_bound[0] / cell_size))
+    min_iy = int(np.floor(min_bound[1] / cell_size))
+    max_iy = int(np.ceil(max_bound[1] / cell_size))
+    min_iz = int(np.floor(min_bound[2] / cell_size))
+    max_iz = int(np.ceil(max_bound[2] / cell_size))
 
     # Grid Setup (SC)
     node_coords_int = []
@@ -807,7 +1204,7 @@ def generate_conformed_hex_scaffold(
     for i, cell in enumerate(cells):
         indices = cell_to_centroids_indices[i]
         c_dists = s_dists[indices]
-        if np.all(c_dists >= -1e-5):
+        if np.all(c_dists <= 1e-5):
             kept_cells.append(cell)
 
     surviving_cells = np.array(kept_cells)

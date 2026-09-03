@@ -14,7 +14,8 @@ from skimage.measure import marching_cubes
 
 from graphite.geometry.masking import voxelize_mesh_and_edt
 from graphite.geometry.surface_picking import compute_face_surface_ids
-from graphite.math.tpms import evaluate_tpms
+from graphite.io.mesh_export import StepExportOptions, export_mesh
+from graphite.math.tpms import calculate_integrated_phase, evaluate_tpms_phase
 
 
 def _distance_field_to_facets(
@@ -86,6 +87,7 @@ def generate_boundary_graded_lattice(
     feature_angle=45.0,
     center_origin=False,
     output_path=None,
+    export_formats=None,
 ):
     """
     Hybrid offset-boundary grading: 1D interpolation of pore size / solid fraction vs
@@ -170,9 +172,21 @@ def generate_boundary_graded_lattice(
     SF_grid = SF_base * (1.0 - W) + float(end_solid_fraction) * W
 
     L_grid = np.maximum(L_grid, 0.001)
-    k_grid = 2.0 * np.pi / L_grid
+    omega_local = 2.0 * np.pi / L_grid
 
-    f = evaluate_tpms(lattice_type, k_grid, X, Y, Z)
+    d_max = float(np.max(D_A))
+    d_dense = np.linspace(0.0, max(d_max, float(dist_arr[-1])), 4096)
+    cp_for_phase = dist_arr
+    l_for_phase = p_arr
+    if d_dense[-1] > cp_for_phase[-1]:
+        cp_for_phase = np.append(cp_for_phase, d_dense[-1])
+        l_for_phase = np.append(l_for_phase, float(end_pore_size))
+    w_dense = calculate_integrated_phase(d_dense, cp_for_phase, l_for_phase)
+    W_phase = np.interp(D_A, d_dense, w_dense)
+
+    U = X * omega_local
+    V = Y * omega_local
+    f = evaluate_tpms_phase(lattice_type, U, V, W_phase)
     solid_field = np.abs(f) - SF_grid
     final_field = np.maximum(solid_field, cad_sdf)
 
@@ -189,8 +203,11 @@ def generate_boundary_graded_lattice(
         mesh_out.vertices -= mesh_out.centroid
 
     if output_path is not None:
-        out = Path(output_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        mesh_out.export(str(out))
+        export_mesh(
+            mesh_out,
+            Path(output_path),
+            formats=export_formats,
+            step_options=StepExportOptions(feature_angle_deg=float(feature_angle)),
+        )
 
     return mesh_out

@@ -1,5 +1,8 @@
 # Graphite Lattice Engine Architecture
 
+> **Status (Jul 2026):** Directory sketch below still emphasizes the classic GMSH scaffold ? topology ? geometry path.  
+> **Current defaults:** A15 conformal (tet) via `a15_conformal.py` / `proven_topologies.py`; Conformal Dual (hex). See [README.md](README.md) and [history/walkthrough.md](history/walkthrough.md).
+
 ## 1) Project Overview
 
 Graphite is a hybrid computational geometry and lattice generation tool that combines:
@@ -15,22 +18,22 @@ Graphite is a hybrid computational geometry and lattice generation tool that com
 Graphite/
 +-- app.py
 +-- graphite/
-¦   +-- explicit/
-¦   ¦   +-- scaffold_module.py
-¦   ¦   +-- topology_module.py
-¦   ¦   +-- geometry_module.py
-¦   ¦   +-- rules/
-¦   ¦       +-- local_tet_rules.py
-¦   ¦       +-- tet_topology_rules.py
-¦   +-- implicit/
-¦   +-- geometry/
-¦   +-- math/
-¦   +-- meshing/
-¦   +-- repair/
+ï¿½   +-- explicit/
+ï¿½   ï¿½   +-- scaffold_module.py
+ï¿½   ï¿½   +-- topology_module.py
+ï¿½   ï¿½   +-- geometry_module.py
+ï¿½   ï¿½   +-- rules/
+ï¿½   ï¿½       +-- local_tet_rules.py
+ï¿½   ï¿½       +-- tet_topology_rules.py
+ï¿½   +-- implicit/
+ï¿½   +-- geometry/
+ï¿½   +-- math/
+ï¿½   +-- meshing/
+ï¿½   +-- repair/
 +-- outputs/
-¦   +-- models/
-¦   +-- metrics/
-¦   +-- diagnostics/
+ï¿½   +-- models/
+ï¿½   +-- metrics/
+ï¿½   +-- diagnostics/
 +-- scripts/          # headless runners (generate_lattice, user-spec jobs)
 +-- tests/            # pytest for graphite/
 +-- test_parts/       # input STL fixtures
@@ -47,7 +50,7 @@ Graphite/
 | `scratch/` | Short-lived repo-level repro and investigation scripts |
 | `result/`, `results/` | Legacy scikit-topt / pytest artifact dumps |
 
-**Related folders:** `tools/` — ad-hoc mesh/debug utilities; not part of CI. `experiments/` — self-contained prototypes with their own `core/`, `tests/`, and `output/`; distinct from `scratch/` (loose files) and from production code in `graphite/`.
+**Related folders:** `tools/` ï¿½ ad-hoc mesh/debug utilities; not part of CI. `experiments/` ï¿½ self-contained prototypes with their own `core/`, `tests/`, and `output/`; distinct from `scratch/` (loose files) and from production code in `graphite/`.
 
 ## 3) Two Methodologies: Implicit vs Explicit
 

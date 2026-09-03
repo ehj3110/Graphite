@@ -1,3 +1,12 @@
+"""
+Graphite Implicit Engine - Graded Lattices
+
+This module provides functionality to generate functionally graded TPMS lattices, 
+where the solid volume fraction varies spatially (e.g., thicker struts at the 
+bottom transitioning to thinner struts at the top). It supports simple axis-driven 
+gradients (X, Y, Z, Radial), modifier-mesh-driven gradients, and externally 
+supplied solid fraction fields (e.g., from FEA analysis).
+"""
 from __future__ import annotations
 
 import time
@@ -10,6 +19,7 @@ from scipy.ndimage import distance_transform_edt as edt
 from skimage.measure import marching_cubes
 
 from graphite.geometry.masking import voxelize_mesh_and_edt
+from graphite.io.mesh_export import export_mesh
 from graphite.math.tpms import evaluate_tpms
 
 
@@ -25,8 +35,47 @@ def generate_graded_lattice(
     transition_width: float = 5.0,
     center_origin: bool = False,
     output_path: str | Path | None = None,
+    export_formats: tuple[str, ...] | str | None = None,
+    solid_fraction_field: np.ndarray | None = None,
 ) -> trimesh.Trimesh:
-    """Generate a conformal graded TPMS lattice with axis or modifier-based gradients."""
+    """
+    Generate a conformal graded TPMS lattice with axis or modifier-based gradients.
+
+    Parameters
+    ----------
+    stl_path : str or Path
+        Path to the target STL boundary mesh.
+    lattice_type : str, optional
+        TPMS equation type (e.g., 'Gyroid'), by default "Gyroid".
+    gradient_type : str, optional
+        Axis of the gradient ('X', 'Y', 'Z', 'Radial') or 'modifier', by default "Z".
+    modifier_path : str or Path, optional
+        Path to the modifier STL if gradient_type is 'modifier', by default None.
+    resolution : float, optional
+        Voxel resolution for the evaluation field in mm, by default 0.25.
+    pore_size : float, optional
+        Target maximum inscribed sphere pore diameter in mm, by default 5.0.
+    min_solid_fraction : float, optional
+        Minimum solid volume fraction (at weight 0), by default 0.10.
+    max_solid_fraction : float, optional
+        Maximum solid volume fraction (at weight 1), by default 0.50.
+    transition_width : float, optional
+        Width of the smoothstep transition region in mm (used for modifier mode), 
+        by default 5.0.
+    center_origin : bool, optional
+        If True, translates the final output mesh to center on the origin, by default False.
+    output_path : str or Path, optional
+        Optional path to write the resulting mesh, by default None.
+    solid_fraction_field : ndarray, optional
+        Pre-computed solid fraction field (voxel grid) to use. If provided,
+        gradient_type and modifier_path are ignored. Used for Aristo FEA
+        stress-informed latticing.
+
+    Returns
+    -------
+    trimesh.Trimesh
+        The meshed and clipped graded lattice.
+    """
     stl_path = Path(stl_path)
     mesh = trimesh.load(str(stl_path))
     if not isinstance(mesh, trimesh.Trimesh):
@@ -97,7 +146,17 @@ def generate_graded_lattice(
         # Apply smoothstep for C1 continuity
         W = 3.0 * W_linear**2 - 2.0 * W_linear**3
 
-    SF_grid = min_solid_fraction + W * (max_solid_fraction - min_solid_fraction)
+    if solid_fraction_field is not None:
+        # Use provided FEA-informed field (ensure shape match)
+        if solid_fraction_field.shape != F.shape:
+            raise ValueError(
+                f"solid_fraction_field shape {solid_fraction_field.shape} "
+                f"must match grid shape {F.shape}."
+            )
+        SF_grid = solid_fraction_field
+    else:
+        SF_grid = min_solid_fraction + W * (max_solid_fraction - min_solid_fraction)
+
     solid_field = np.abs(F) - SF_grid
 
     final_field = np.maximum(solid_field, cad_sdf)
@@ -110,7 +169,8 @@ def generate_graded_lattice(
     )
     t_mc = time.perf_counter() - t0
 
-    verts = (verts * resolution) + padded_min_bound
+    # spacing= already maps voxel indices → mm; only translate into world frame
+    verts = verts + padded_min_bound
 
     mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
     if center_origin:
@@ -118,9 +178,7 @@ def generate_graded_lattice(
         mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
     if output_path is not None:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        mesh_out.export(str(output_path))
+        export_mesh(mesh_out, Path(output_path), formats=export_formats)
 
     print(
         f"Gradient {lattice_type} lattice from '{stl_path.name}': res={resolution}mm, "

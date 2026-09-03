@@ -30,6 +30,8 @@ Vocal simulation **caches** (`f.pkl`, velocity, metrics) live in `outputs/vocal/
 | [`figures/Cube1mm_Aristo_Vocal_6panel_comparison_sharedScale.png`](figures/Cube1mm_Aristo_Vocal_6panel_comparison_sharedScale.png) | Same; shared color scale per row |
 | [`figures/Cube1mm_Vocal_WSS_3panel_comparison.png`](figures/Cube1mm_Vocal_WSS_3panel_comparison.png) | 1×3: WSS + streamlines (converged Vocal caches) |
 
+**WSS display experiments** (upsample / STL stamp — not canonical): [CUBE_1MM_WSS_DISPLAY_EXPERIMENTS.md](../../docs/CUBE_1MM_WSS_DISPLAY_EXPERIMENTS.md)
+
 Regenerate:
 
 ```powershell

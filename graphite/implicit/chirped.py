@@ -1,3 +1,11 @@
+"""
+Graphite Implicit Engine - Chirped Lattices
+
+This module provides functionality to generate chirped (spatially varying frequency) 
+TPMS lattices. It supports both mathematical axis-driven gradients (e.g., varying 
+frequency along the Z axis) and boundary/modifier-driven gradients using Signed 
+Distance Fields (SDFs).
+"""
 from __future__ import annotations
 
 import time
@@ -10,6 +18,7 @@ from scipy.ndimage import distance_transform_edt as edt
 from skimage.measure import marching_cubes
 
 from graphite.geometry.masking import voxelize_mesh_and_edt
+from graphite.io.mesh_export import export_mesh
 from graphite.math.tpms import evaluate_tpms
 
 
@@ -23,8 +32,37 @@ def generate_chirped_lattice(
     transition_width: float = 5.0,
     center_origin: bool = False,
     output_path: str | Path | None = None,
+    export_formats: tuple[str, ...] | str | None = None,
 ) -> trimesh.Trimesh:
-    """Generate a conformal chirped TPMS lattice using a modifier-driven smoothstep field."""
+    """
+    Generate a conformal chirped TPMS lattice using a modifier-driven smoothstep field.
+
+    Parameters
+    ----------
+    stl_path : str or Path
+        Path to the target STL boundary mesh.
+    lattice_type : str, optional
+        TPMS equation type (e.g., 'Gyroid'), by default "Gyroid".
+    gradient_type : str, optional
+        Axis of the gradient ('X', 'Y', 'Z', 'Radial') or 'modifier', by default "Z".
+    modifier_path : str or Path, optional
+        Path to the modifier STL if gradient_type is 'modifier', by default None.
+    resolution : float, optional
+        Voxel resolution for the evaluation field in mm, by default 0.25.
+    solid_fraction : float, optional
+        Target solid volume fraction threshold (approximate), by default 0.33.
+    transition_width : float, optional
+        Width of the smoothstep transition region in mm, by default 5.0.
+    center_origin : bool, optional
+        If True, translates the final output mesh to center on the origin, by default False.
+    output_path : str or Path, optional
+        Optional path to write the resulting mesh, by default None.
+
+    Returns
+    -------
+    trimesh.Trimesh
+        The resulting meshed and clipped chirped lattice.
+    """
     stl_path = Path(stl_path)
 
     mesh = trimesh.load(str(stl_path))
@@ -118,9 +156,7 @@ def generate_chirped_lattice(
         mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
     if output_path is not None:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        mesh_out.export(str(output_path))
+        export_mesh(mesh_out, Path(output_path), formats=export_formats)
 
     modifier_desc = Path(modifier_path).name if modifier_path else "axis-driven"
     print(
