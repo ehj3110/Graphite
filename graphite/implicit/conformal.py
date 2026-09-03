@@ -48,6 +48,8 @@ def generate_conformal_lattice(
     selected_surfaces: list[int] | None = None,
     output_path: str | Path | None = None,
     export_formats: tuple[str, ...] | str | None = None,
+    exact_cad_trim: bool = False,
+    trim_dilation_mm: float | None = None,
 ) -> trimesh.Trimesh:
     """
     Generate a conformal TPMS lattice inside an input STL using EDT-based CAD SDF.
@@ -106,7 +108,13 @@ def generate_conformal_lattice(
         tau = float(solid_fraction)
     solid_field = np.abs(F) - tau
 
-    core_sdf = np.maximum(solid_field, cad_sdf)
+    if exact_cad_trim:
+        dilation = float(trim_dilation_mm if trim_dilation_mm is not None else 3.0 * resolution)
+        effective_cad_sdf = cad_sdf - dilation
+    else:
+        effective_cad_sdf = cad_sdf
+
+    core_sdf = np.maximum(solid_field, effective_cad_sdf)
 
     if selected_surfaces is not None and len(selected_surfaces) > 0:
         facets = mesh.facets
@@ -177,6 +185,29 @@ def generate_conformal_lattice(
     )
     mesh_out = iso.mesh
     t_mc = time.perf_counter() - t0
+
+    if exact_cad_trim:
+        t_trim = time.perf_counter()
+        try:
+            import manifold3d
+            from graphite.explicit.geometry_module import manifold_to_trimesh, trimesh_to_manifold
+            man_tpms = trimesh_to_manifold(mesh_out)
+            man_cad = trimesh_to_manifold(mesh)
+            if (
+                man_tpms is not None
+                and man_cad is not None
+                and man_cad.status() == manifold3d.Error.NoError
+            ):
+                man_trimmed = man_tpms ^ man_cad
+                mesh_out = manifold_to_trimesh(man_trimmed)
+                trimesh.repair.fix_normals(mesh_out)
+                t_trim_s = time.perf_counter() - t_trim
+                print(
+                    f"  Exact B-Rep Boolean Trim: {len(mesh_out.faces):,} faces, "
+                    f"watertight={mesh_out.is_watertight} in {t_trim_s:.2f}s"
+                )
+        except Exception as exc:
+            print(f"  Warning: exact_cad_trim failed ({exc}); retaining implicit isosurface.")
 
     if center_origin:
         mesh_out.vertices -= mesh_out.centroid
