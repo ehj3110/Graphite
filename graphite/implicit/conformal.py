@@ -1,3 +1,11 @@
+"""
+Graphite Implicit Engine - Conformal Lattices
+
+This module generates conformal Triply Periodic Minimal Surface (TPMS) lattices 
+bounded by arbitrary STL geometries. It computes the intersection of the TPMS 
+implicit field with the Signed Distance Field (SDF) of the CAD boundary, and 
+can optionally generate solid outer shells for selected faces.
+"""
 from __future__ import annotations
 
 import time
@@ -6,9 +14,10 @@ from pathlib import Path
 import numpy as np
 import trimesh
 from scipy.ndimage import distance_transform_edt as edt
-from skimage.measure import marching_cubes
-
 from graphite.geometry.masking import voxelize_mesh_and_edt
+from graphite.implicit.density_control import tau_from_wall_thickness_mm
+from graphite.implicit.meshing_backends import extract_isosurface
+from graphite.io.mesh_export import export_mesh
 from graphite.math.tpms import evaluate_tpms
 
 
@@ -30,14 +39,55 @@ def generate_conformal_lattice(
     lattice_type: str = "Gyroid",
     resolution: float = 0.25,
     pore_size: float | None = 5.0,
+    unit_cell_size: float | None = None,
     solid_fraction: float = 0.33,
+    wall_thickness_mm: float | None = None,
     export_mode: str = "core",
     shell_thickness: float = 2.0,
     center_origin: bool = False,
     selected_surfaces: list[int] | None = None,
     output_path: str | Path | None = None,
+    export_formats: tuple[str, ...] | str | None = None,
 ) -> trimesh.Trimesh:
-    """Generate a conformal TPMS lattice inside an input STL using EDT-based CAD SDF."""
+    """
+    Generate a conformal TPMS lattice inside an input STL using EDT-based CAD SDF.
+
+    Parameters
+    ----------
+    stl_path : str or Path
+        Path to the target STL boundary mesh.
+    lattice_type : str, optional
+        TPMS equation type (e.g., 'Gyroid'), by default "Gyroid".
+    resolution : float, optional
+        Voxel resolution for the evaluation field in mm, by default 0.25.
+    pore_size : float, optional
+        Target maximum inscribed sphere pore diameter in mm. Mutually exclusive 
+        with unit_cell_size. By default 5.0.
+    unit_cell_size : float, optional
+        Unit cell period L in mm (alternative to pore_size), by default None.
+    solid_fraction : float, optional
+        Target solid volume fraction threshold, by default 0.33.
+    wall_thickness_mm : float, optional
+        If set, overrides solid_fraction and sets TPMS threshold from physical
+        wall thickness and period L.
+    export_mode : str, optional
+        'core' (lattice only), 'skin' (solid shell only), or 'combined' 
+        (lattice with shell), by default "core".
+    shell_thickness : float, optional
+        Thickness of the generated outer shell in mm, by default 2.0.
+    center_origin : bool, optional
+        If True, translates the final output mesh to center on the origin, by default False.
+    selected_surfaces : list of int, optional
+        List of specific mesh face indices to apply the skin to. If None, applies 
+        globally. By default None.
+    output_path : str or Path, optional
+        Optional path to write the resulting mesh, by default None.
+
+    Returns
+    -------
+    trimesh.Trimesh
+        The resulting meshed and clipped conformal lattice.
+    """
     stl_path = Path(stl_path)
     mesh = trimesh.load(str(stl_path))
     if not isinstance(mesh, trimesh.Trimesh):
@@ -47,11 +97,14 @@ def generate_conformal_lattice(
         mesh, resolution
     )
 
-    L, k = _compute_L_and_k(pore_size, None, solid_fraction)
+    L, k = _compute_L_and_k(pore_size, unit_cell_size, solid_fraction)
     F = evaluate_tpms(lattice_type, k, X, Y, Z)
 
-    t = 1.5 * (2.0 * solid_fraction - 1.0)
-    solid_field = np.abs(F) - abs(t)
+    if wall_thickness_mm is not None:
+        tau = float(tau_from_wall_thickness_mm(wall_thickness_mm, L).ravel()[0])
+    else:
+        tau = float(solid_fraction)
+    solid_field = np.abs(F) - tau
 
     core_sdf = np.maximum(solid_field, cad_sdf)
 
@@ -115,24 +168,21 @@ def generate_conformal_lattice(
         raise ValueError("export_mode must be 'core', 'skin', or 'combined'")
 
     t0 = time.perf_counter()
-    verts, faces, _, _ = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    iso = extract_isosurface(
+        final_field,
         spacing=(resolution, resolution, resolution),
+        origin=padded_min_bound,
+        level=0.0,
+        enforce_watertight=True,
     )
+    mesh_out = iso.mesh
     t_mc = time.perf_counter() - t0
 
-    verts = (verts * resolution) + padded_min_bound
-
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
     if center_origin:
-        verts -= mesh_out.centroid
-        mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
+        mesh_out.vertices -= mesh_out.centroid
 
     if output_path is not None:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        mesh_out.export(str(output_path))
+        export_mesh(mesh_out, Path(output_path), formats=export_formats)
 
     print(
         f"Conformal {lattice_type} lattice from '{stl_path.name}': res={resolution}mm, "
@@ -160,7 +210,33 @@ def generate_conformal_gyroid(
     selected_surfaces: list[int] | None = None,
     output_path: str | Path | None = None,
 ) -> trimesh.Trimesh:
-    """Backward-compatible wrapper for the original gyroid-only API."""
+    """
+    Backward-compatible wrapper for the original gyroid-only API.
+
+    Parameters
+    ----------
+    stl_path : str or Path
+        Path to the target STL boundary mesh.
+    resolution : float, optional
+        Voxel resolution for the evaluation field in mm, by default 0.25.
+    pore_size : float, optional
+        Target maximum inscribed sphere pore diameter in mm, by default 5.0.
+    solid_fraction : float, optional
+        Target solid volume fraction threshold, by default 0.33.
+    export_mode : str, optional
+        'core', 'skin', or 'combined', by default "core".
+    shell_thickness : float, optional
+        Thickness of the generated outer shell in mm, by default 2.0.
+    selected_surfaces : list of int, optional
+        List of specific mesh face indices to apply the skin to, by default None.
+    output_path : str or Path, optional
+        Optional path to write the resulting mesh, by default None.
+
+    Returns
+    -------
+    trimesh.Trimesh
+        The resulting meshed and clipped conformal lattice.
+    """
     return generate_conformal_lattice(
         stl_path=stl_path,
         lattice_type="Gyroid",

@@ -61,6 +61,17 @@ from graphite.implicit.meshing_backends import (
     extract_isosurface,
     extract_isosurface_from_image_data,
 )
+from graphite.implicit.surface_textures import (
+    SurfaceTextureConfig,
+    apply_surface_texture,
+    subdivide_for_texture,
+)
+from graphite.implicit.micropillars import (
+    MicropillarConfig,
+    generate_micropillars,
+    sample_pillar_anchors,
+    segment_cad_boundary,
+)
 
 __all__ = [
     "CrossSectionalPoreSizeResult",
@@ -105,5 +116,12 @@ __all__ = [
     "WoodpileImplicitSpec",
     "build_piecewise_woodpile_mesh",
     "repair_woodpile_mesh",
+    "SurfaceTextureConfig",
+    "apply_surface_texture",
+    "subdivide_for_texture",
+    "MicropillarConfig",
+    "generate_micropillars",
+    "sample_pillar_anchors",
+    "segment_cad_boundary",
 ]
 

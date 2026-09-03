@@ -53,6 +53,12 @@ def _postprocess_mesh(mesh: trimesh.Trimesh, fill_holes: bool = True) -> trimesh
     mesh.update_faces(mesh.nondegenerate_faces())
     mesh.remove_unreferenced_vertices()
     trimesh.repair.fix_normals(mesh)
+    try:
+        if float(mesh.volume) < 0.0:
+            mesh.invert()
+            trimesh.repair.fix_normals(mesh)
+    except Exception:
+        pass
     if fill_holes:
         trimesh.repair.fill_holes(mesh)
     return mesh
@@ -106,7 +112,7 @@ def extract_isosurface(
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
     *,
-    backend: str = "marching_cubes",
+    backend: str = "pyvista_flying_edges",
     level: float = 0.0,
     postprocess: bool = True,
     fill_holes: bool = True,
@@ -124,8 +130,8 @@ def extract_isosurface(
     origin : tuple of float
         The physical (x, y, z) coordinate of the minimum corner of the grid.
     backend : str, optional
-        Algorithm to use: 'marching_cubes' (scikit-image) or 'pyvista_flying_edges', 
-        by default "marching_cubes".
+        Algorithm to use: 'pyvista_flying_edges' (default, multi-threaded high quality),
+        'auto', or 'marching_cubes' (scikit-image classic fallback).
     level : float, optional
         The contour level to extract, by default 0.0 (for level-set zero-crossings).
     postprocess : bool, optional
@@ -150,11 +156,12 @@ def extract_isosurface(
     """
     if field.ndim != 3:
         raise ValueError("field must be a 3D array")
-    if backend not in {"marching_cubes", "pyvista_flying_edges"}:
-        raise ValueError("backend must be 'marching_cubes' or 'pyvista_flying_edges'")
+    b_norm = backend.strip().lower()
+    if b_norm not in {"pyvista_flying_edges", "auto", "marching_cubes"}:
+        raise ValueError(f"backend must be 'pyvista_flying_edges', 'auto', or 'marching_cubes', got '{backend}'")
 
     t0 = time.perf_counter()
-    backend_used = backend
+    backend_used = "pyvista_flying_edges" if b_norm != "marching_cubes" else "marching_cubes"
     fallback_used = False
     fallback_reason: str | None = None
     notes: list[str] = []
@@ -170,14 +177,14 @@ def extract_isosurface(
         verts[:, 2] += origin[2]
         return trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
-    if backend == "pyvista_flying_edges":
+    if b_norm in {"pyvista_flying_edges", "auto"}:
         try:
             mesh = extract_isosurface_from_image_data(field, spacing=spacing, origin=origin, level=level)
         except Exception as exc:
             fallback_used = True
             fallback_reason = f"pyvista backend failed: {exc}"
             backend_used = "marching_cubes"
-            notes.append("Fell back to marching_cubes backend.")
+            notes.append(f"Fell back to marching_cubes backend ({exc}).")
             mesh = _mc_mesh()
     else:
         mesh = _mc_mesh()
