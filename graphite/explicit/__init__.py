@@ -109,12 +109,21 @@ from .geometry_module import (
 )
 
 
+from .chiral_cell import (
+    generate_tetrachiral_cell,
+    generate_trichiral_cell,
+)
+
+
 __all__ = [
     # Primary A15 API (routes to battle-tested a15_conformal.py)
     "generate_a15_conformal_lattice",
     "generate_conformal_scaffold",
     # Unified wrapper
     "generate_conformal_lattice",
+    # Chiral unit cells
+    "generate_tetrachiral_cell",
+    "generate_trichiral_cell",
     # Shared modules
     "generate_topology",
     "generate_hex_topology",

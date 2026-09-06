@@ -1,4 +1,4 @@
-﻿# Graphite Documentation Index
+# Graphite Documentation Index
 
 This directory contains the central architectural design patterns, specification histories, and operational notes for the Graphite project.
 
@@ -36,6 +36,7 @@ This directory contains the central architectural design patterns, specification
 ## Core Architecture
 - **[MASTER_ARCHITECTURE.md](MASTER_ARCHITECTURE.md)**: Current architecture overview (implicit vs explicit, directory layout). Older `ARCHITECTURE.md` / `LATTICE_ARCHITECTURE.md` copies live under [history/archive/](history/archive/).
 - **[EXPLICIT_ENGINE.md](EXPLICIT_ENGINE.md)**: Explicit engine notes — prefer A15 conformal + Conformal Dual docs above for current defaults; see Jul 2026 status banner in-file.
+- **[EXPLICIT_CHIRAL_AUXETIC_LATTICES.md](EXPLICIT_CHIRAL_AUXETIC_LATTICES.md)**: **Chiral & Auxetic Metamaterial Lattices** — Tetra-Chiral (square), Tri-Chiral (hexagonal), anti-chiral variants, and Chen et al. re-entrant honeycombs mapped onto cylindrical parts with seam-free periodicity.
 - **[HEX_EXPLICIT_ENGINE.md](HEX_EXPLICIT_ENGINE.md)**: Hex explicit engine guide — **Conformal Dual is the default mesh**; also documents Route 1/2, experiments, and tet/supercell integration.
 - **[LATTICE_MATH_ARCHITECTURE.md](LATTICE_MATH_ARCHITECTURE.md)**: Implicit Jacobian / TPMS phase grading math (not the explicit mesh architecture).
 - **[CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md)**: **Default production hex mesh** — VF-cropped Route 3 scaffold, integer surface dual, Toros + trophy validation, export scripts.

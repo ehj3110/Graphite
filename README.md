@@ -84,6 +84,18 @@ Supported hex rules:
 
 See [docs/HEX_EXPLICIT_ENGINE.md](docs/HEX_EXPLICIT_ENGINE.md) for detailed integration guides.
 
+## Auxetic & Chiral Metamaterials
+
+Graphite Explicit includes dedicated unit-cell generators and conformal cylindrical mapping pipelines for negative Poisson's ratio ($\nu < 0$) structures:
+
+- **Tetra-Chiral:** 4 tangential ligaments on a square lattice basis (symmetrical in-plane auxetic expansion).
+- **Tri-Chiral:** 3 tangential ligaments on a triangular/hexagonal lattice basis (isotropic auxetic expansion, high shear compliance).
+- **Anti-Chiral Variants:** Anti-tetra-chiral and anti-tri-chiral topologies.
+- **Re-Entrant Honeycombs:** Chen et al. (2020) bow-tie lattices with horizontal (Type-A) and vertical (Type-B) reinforcement ribs.
+- **Seam-Free Cylindrical Wrapping:** Analytical basis rotation prevents helical shear seams across periodic boundaries.
+
+See [docs/EXPLICIT_CHIRAL_AUXETIC_LATTICES.md](docs/EXPLICIT_CHIRAL_AUXETIC_LATTICES.md) for theory, equations, and API guides.
+
 ## Repository layout
 
 | Path | Role |
