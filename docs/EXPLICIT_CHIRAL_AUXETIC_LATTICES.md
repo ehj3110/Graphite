@@ -62,13 +62,59 @@ Graphite Explicit solves this analytically:
 
 ## 4. Core Python API (`graphite.explicit`)
 
-The chiral metamaterial generators are exposed in `graphite.explicit`:
+The chiral metamaterial generators and unified surface conformal engines are exposed directly in `graphite.explicit`:
 
 ```python
-from graphite.explicit import generate_tetrachiral_cell, generate_trichiral_cell
+from graphite.explicit import (
+    generate_surface_lattice,
+    generate_tetrachiral_cell,
+    generate_trichiral_cell,
+)
 
-# 1. Tetra-Chiral (Square) Unit Cell
-nodes, struts, meta = generate_tetrachiral_cell(
+# ---------------------------------------------------------------------------
+# 1. High-Level Unified Surface Generator (generate_surface_lattice)
+# ---------------------------------------------------------------------------
+
+# Mode A: Flat Plate / Bookmark / Coaster (Tetra-Chiral or Tri-Chiral)
+plate_stl = generate_surface_lattice(
+    surface="plate",
+    pattern="tetra_chiral",     # "tetra_chiral", "tri_chiral", "anti_tetra_chiral"
+    width=50.0,
+    height=50.0,
+    thickness=3.0,
+    n_circumferential=5,
+    r_node=2.0,
+    strut_w=1.6,
+)
+
+# Mode B: Cylindrical Sleeve (Direct Parametric Primitive)
+sleeve_stl = generate_surface_lattice(
+    surface="cylinder",
+    pattern="tri_chiral",       # Hexagonal basis, isotropic auxetic
+    r_in=19.05,
+    r_out=22.05,
+    height=38.1,
+    n_circumferential=10,
+    r_node=2.0,
+    strut_w=1.8,
+)
+
+# Mode B: Napkin Ring with Auto-Fused Collar Rims (CAD Fixture Auto-Fit)
+napkin_ring_stl = generate_surface_lattice(
+    surface="cylinder",
+    pattern="tetra_chiral",
+    cad_fixture="test_parts/BaseRing_1to2.STL",  # Auto-detects R_in, R_out, and H
+    n_circumferential=10,
+    r_node=2.2,
+    strut_w=2.0,
+)
+
+# ---------------------------------------------------------------------------
+# 2. Low-Level 2D Unit Cell Generators
+# ---------------------------------------------------------------------------
+
+# Tetra-Chiral (Square) Unit Cell
+nodes_sq, struts_sq, meta_sq = generate_tetrachiral_cell(
     L=10.0,                  # Ligament length in mm
     r=2.0,                   # Central circle radius in mm
     t=1.0,                   # Nominal strut thickness in mm
@@ -76,11 +122,7 @@ nodes, struts, meta = generate_tetrachiral_cell(
     chiral=True,             # True = chiral, False = anti-chiral
 )
 
-print(f"Tetra-Chiral Pitch D: {meta['D_pitch']:.2f} mm")
-print(f"Rotation angle alpha: {meta['alpha_deg']:.2f} deg")
-print(f"Nodes shape: {nodes.shape}, Struts shape: {struts.shape}")
-
-# 2. Tri-Chiral (Triangular) Unit Cell
+# Tri-Chiral (Triangular) Unit Cell
 nodes_tri, struts_tri, meta_tri = generate_trichiral_cell(
     L=10.0,
     r=2.0,
@@ -88,15 +130,11 @@ nodes_tri, struts_tri, meta_tri = generate_trichiral_cell(
     n_circle_segments=16,
     chiral=True,
 )
-
-print(f"Tri-Chiral Pitch D: {meta_tri['D_pitch']:.2f} mm")
-print(f"Tangent angle phi: {meta_tri['phi_deg']:.2f} deg")
 ```
 
 ### Return Values
-- `nodes`: `(N, 2)` NumPy array of 2D node coordinates.
-- `struts`: `(S, 2)` NumPy array of integer index pairs representing strut connectivity.
-- `metadata`: Dictionary containing computed pitch $D$, angles ($\alpha$ or $\phi$), and configuration details.
+- `generate_surface_lattice()`: Returns a 100% watertight, manifold `trimesh.Trimesh` ready for 3D printing and export.
+- `generate_tetrachiral_cell()` / `generate_trichiral_cell()`: Returns `nodes` (shape `(N, 2)`), `struts` (shape `(S, 2)`), and `metadata` dict with computed pitch $D$ and angle $\alpha$ or $\phi$.
 
 ---
 
@@ -143,9 +181,12 @@ python scripts/cylinders/generate_cylinder_auxetic.py --phase 0
 ### Core Python Modules & Tests
 | File | Role |
 |---|---|
+| `graphite/explicit/surface_lattice/` | Unified 2D & surface-conformal engine (unit cells, face operators, sweepers, CAD fixtures, pipeline). |
+| `graphite/explicit/surface_lattice/pipeline.py` | Top-level entry point `generate_surface_lattice(...)`. |
 | `graphite/explicit/chiral_cell.py` | 2D unit cell generators for tetra-chiral, tri-chiral, and anti-chiral metamaterials. |
-| `graphite/explicit/__init__.py` | Package-level exports for `generate_tetrachiral_cell` and `generate_trichiral_cell`. |
-| `tests/test_chiral_cell.py` | Unit tests verifying node/strut counts, ligament lengths, and pitch math (`pytest` clean). |
+| `graphite/explicit/__init__.py` | Package-level exports for `generate_surface_lattice`, `generate_tetrachiral_cell`, `generate_trichiral_cell`. |
+| `tests/test_surface_lattice.py` | Test suite verifying plates, cylinders, CAD fixtures, and spherical dual cages (`pytest` 6/6 passed). |
+| `tests/test_chiral_cell.py` | Unit tests verifying node/strut counts, ligament lengths, and pitch math (`pytest` 3/3 passed). |
 | `scripts/cylinders/generate_cylinder_chiral.py` | Complete 2D/3D generation pipeline for chiral cylinder lattices and napkin rings. |
 | `scripts/cylinders/generate_cylinder_auxetic.py` | Complete generation pipeline for Chen et al. (2020) re-entrant auxetic honeycombs. |
 

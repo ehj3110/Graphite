@@ -115,12 +115,19 @@ from .chiral_cell import (
 )
 
 
+from .surface_lattice import (
+    generate_surface_lattice,
+)
+
+
 __all__ = [
     # Primary A15 API (routes to battle-tested a15_conformal.py)
     "generate_a15_conformal_lattice",
     "generate_conformal_scaffold",
     # Unified wrapper
     "generate_conformal_lattice",
+    # 2D & Surface Conformal Lattices
+    "generate_surface_lattice",
     # Chiral unit cells
     "generate_tetrachiral_cell",
     "generate_trichiral_cell",
