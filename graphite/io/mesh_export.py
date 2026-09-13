@@ -19,6 +19,7 @@ import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import trimesh
@@ -39,6 +40,37 @@ class StepExportOptions:
 
 
 @dataclass
+class MeshHealthReport:
+    """Detailed topological and geometric health report for a mesh."""
+
+    vertex_count: int = 0
+    face_count: int = 0
+    euler_characteristic: int = 0
+    is_watertight: bool = False
+    boundary_edges: int = 0
+    boundary_loops: int = 0
+    non_manifold_edges: int = 0
+    non_manifold_vertices: int = 0
+    self_intersections: int | None = None
+    is_export_ready: bool = False
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MeshRepairConfig:
+    """Options for automated mesh repair and validation prior to export."""
+
+    auto_repair: bool = True
+    repair_mode: Literal["gentle", "full", "explicit", "implicit", "none"] = "gentle"
+    escalate_to_full: bool = False
+    poisson_depth: int = 10
+    max_non_manifold_edges: int = 0
+    max_boundary_loops: int = 0
+    check_intersections: bool = False
+    log_health: bool = True
+
+
+@dataclass
 class ExportResult:
     """Paths and metadata from ``export_mesh``."""
 
@@ -47,6 +79,7 @@ class ExportResult:
     vertex_count: int = 0
     watertight: bool = False
     step_notes: list[str] = field(default_factory=list)
+    health_report: MeshHealthReport | None = None
 
 
 def formats_from_request(export_format: str) -> tuple[str, ...]:
@@ -101,15 +134,203 @@ def _step_export_in_subprocess() -> bool:
     return threading.current_thread() is not threading.main_thread()
 
 
-def repair_mesh_for_export(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    """Light repair pass before CAD export."""
-    out = mesh.copy()
-    out.update_faces(out.unique_faces())
-    out.update_faces(out.nondegenerate_faces())
-    out.remove_unreferenced_vertices()
-    trimesh.repair.fix_normals(out)
-    trimesh.repair.fill_holes(out)
-    return out
+def compute_mesh_health(
+    mesh: trimesh.Trimesh,
+    *,
+    check_intersections: bool = False,
+) -> MeshHealthReport:
+    """
+    Compute topological and manifold metrics for a mesh prior to serialization.
+
+    Evaluates:
+    - vertex and face counts
+    - Euler characteristic: chi = V - E + F
+    - Watertight status
+    - Boundary edge and boundary loop counts
+    - Non-manifold edge count
+    - Non-manifold vertex count
+    - Optional self-intersections (via PyMeshLab)
+    """
+    if isinstance(mesh, trimesh.Scene):
+        mesh = mesh.dump(concatenate=True)
+
+    v_count = int(len(mesh.vertices))
+    f_count = int(len(mesh.faces))
+
+    if v_count == 0 or f_count == 0:
+        return MeshHealthReport(
+            vertex_count=v_count,
+            face_count=f_count,
+            euler_characteristic=0,
+            is_watertight=False,
+            boundary_edges=0,
+            boundary_loops=0,
+            non_manifold_edges=0,
+            non_manifold_vertices=0,
+            self_intersections=0 if check_intersections else None,
+            is_export_ready=False,
+            notes=["Empty mesh"],
+        )
+
+    # Edge analysis via numpy
+    edges = np.sort(mesh.edges, axis=1)
+    unique_edges, counts = np.unique(edges, axis=0, return_counts=True)
+    e_unique_count = int(len(unique_edges))
+
+    # Euler characteristic chi = V - E_unique + F
+    euler_char = int(v_count - e_unique_count + f_count)
+
+    # Boundary edges (count == 1)
+    boundary_edge_mask = counts == 1
+    boundary_edges_count = int(np.sum(boundary_edge_mask))
+
+    # Boundary loops via connected components on boundary edges
+    boundary_loops_count = 0
+    if boundary_edges_count > 0:
+        b_edges = unique_edges[boundary_edge_mask]
+        adj: dict[int, list[int]] = {}
+        for u, v in b_edges:
+            u_i, v_i = int(u), int(v)
+            adj.setdefault(u_i, []).append(v_i)
+            adj.setdefault(v_i, []).append(u_i)
+        visited: set[int] = set()
+        for node in adj:
+            if node not in visited:
+                boundary_loops_count += 1
+                q = [node]
+                visited.add(node)
+                while q:
+                    curr = q.pop()
+                    for nei in adj[curr]:
+                        if nei not in visited:
+                            visited.add(nei)
+                            q.append(nei)
+
+    # Non-manifold edges (incident to > 2 faces)
+    non_manifold_edges_count = int(np.sum(counts > 2))
+
+    # Non-manifold vertices (pinch vertices)
+    non_manifold_verts_count = 0
+    used_pymeshlab = False
+    try:
+        import pymeshlab
+        ms = pymeshlab.MeshSet()
+        pm = pymeshlab.Mesh(
+            vertex_matrix=np.asarray(mesh.vertices, dtype=np.float64),
+            face_matrix=np.asarray(mesh.faces, dtype=np.int32),
+        )
+        ms.add_mesh(pm)
+        meas = ms.get_topological_measures()
+        nm_v = meas.get("non_two_manifold_vertices", -1)
+        if nm_v != -1:
+            non_manifold_verts_count = int(nm_v)
+            used_pymeshlab = True
+    except Exception:
+        used_pymeshlab = False
+
+    if not used_pymeshlab:
+        vf = mesh.vertex_faces
+        for v_idx in range(v_count):
+            f_ids = vf[v_idx]
+            f_ids = f_ids[f_ids >= 0]
+            if len(f_ids) <= 1:
+                continue
+            sub_faces = mesh.faces[f_ids]
+            opp_edges: list[tuple[int, int]] = []
+            for face in sub_faces:
+                other = [int(idx) for idx in face if idx != v_idx]
+                if len(other) == 2:
+                    opp_edges.append((min(other), max(other)))
+            v_adj: dict[int, list[int]] = {}
+            v_nodes: set[int] = set()
+            for a, b in opp_edges:
+                v_adj.setdefault(a, []).append(b)
+                v_adj.setdefault(b, []).append(a)
+                v_nodes.add(a)
+                v_nodes.add(b)
+            v_visited: set[int] = set()
+            comps = 0
+            for n in v_nodes:
+                if n not in v_visited:
+                    comps += 1
+                    q = [n]
+                    v_visited.add(n)
+                    while q:
+                        curr = q.pop()
+                        for nei in v_adj[curr]:
+                            if nei not in v_visited:
+                                v_visited.add(nei)
+                                q.append(nei)
+            if comps > 1:
+                non_manifold_verts_count += 1
+
+    intersections = None
+    if check_intersections:
+        try:
+            from graphite.repair.repair_suite import check_intersections_pymeshlab
+            with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
+                tmp_stl = tmp.name
+            try:
+                mesh.export(tmp_stl)
+                intersections = check_intersections_pymeshlab(tmp_stl)
+            finally:
+                if os.path.exists(tmp_stl):
+                    os.remove(tmp_stl)
+        except Exception:
+            intersections = None
+
+    is_watertight = bool(mesh.is_watertight and boundary_edges_count == 0)
+    is_export_ready = (
+        is_watertight
+        and boundary_edges_count == 0
+        and boundary_loops_count == 0
+        and non_manifold_edges_count == 0
+        and non_manifold_verts_count == 0
+        and (intersections is None or intersections == 0)
+    )
+
+    notes: list[str] = []
+    if not is_watertight:
+        notes.append(f"Not watertight ({boundary_edges_count} boundary edges in {boundary_loops_count} loops)")
+    if non_manifold_edges_count > 0:
+        notes.append(f"{non_manifold_edges_count} non-manifold edges")
+    if non_manifold_verts_count > 0:
+        notes.append(f"{non_manifold_verts_count} non-manifold pinch vertices")
+    if intersections is not None and intersections > 0:
+        notes.append(f"{intersections} self-intersecting faces")
+
+    return MeshHealthReport(
+        vertex_count=v_count,
+        face_count=f_count,
+        euler_characteristic=euler_char,
+        is_watertight=is_watertight,
+        boundary_edges=boundary_edges_count,
+        boundary_loops=boundary_loops_count,
+        non_manifold_edges=non_manifold_edges_count,
+        non_manifold_vertices=non_manifold_verts_count,
+        self_intersections=intersections,
+        is_export_ready=is_export_ready,
+        notes=notes,
+    )
+
+
+def repair_mesh_for_export(
+    mesh: trimesh.Trimesh,
+    config: MeshRepairConfig | None = None,
+) -> trimesh.Trimesh:
+    """Repair pass before export (STL/STEP)."""
+    cfg = config or MeshRepairConfig()
+    if not cfg.auto_repair or cfg.repair_mode == "none":
+        return mesh.copy()
+
+    from graphite.repair.repair_suite import repair_trimesh
+    repaired, _ = repair_trimesh(
+        mesh,
+        mode=cfg.repair_mode,
+        escalate_to_full=cfg.escalate_to_full,
+        poisson_depth=cfg.poisson_depth,
+    )
+    return repaired
 
 
 def gmsh_stl_file_to_step(
@@ -304,9 +525,10 @@ def export_mesh(
     *,
     formats: tuple[str, ...] | str | None = None,
     step_options: StepExportOptions | None = None,
+    repair_config: MeshRepairConfig | None = None,
 ) -> ExportResult:
     """
-    Export a lattice mesh to one or more file formats.
+    Export a lattice mesh to one or more file formats with automated repair and verification.
 
     Parameters
     ----------
@@ -321,6 +543,9 @@ def export_mesh(
         (``stl`` / ``step`` / ``both``). If None, inferred from ``path`` suffix.
     step_options : StepExportOptions, optional
         Gmsh conversion settings when STEP is requested.
+    repair_config : MeshRepairConfig, optional
+        Options controlling automated repair, escalation, and health reporting.
+        Defaults to ``MeshRepairConfig()`` (gentle triage enabled).
 
     Returns
     -------
@@ -331,6 +556,73 @@ def export_mesh(
     if not resolved:
         raise ValueError("No export formats resolved; pass formats= or a path with a suffix.")
 
+    repair_cfg = repair_config or MeshRepairConfig()
+
+    # Pre-export automated repair
+    if repair_cfg.auto_repair and repair_cfg.repair_mode != "none":
+        from graphite.repair.repair_suite import repair_trimesh_gentle, repair_trimesh_poisson
+
+        work_mesh = repair_trimesh_gentle(mesh)
+        repair_notes = ["Applied gentle triage (dedup, winding, normals, hole filling)."]
+
+        # Health check after gentle triage
+        health = compute_mesh_health(
+            work_mesh,
+            check_intersections=repair_cfg.check_intersections,
+        )
+
+        # Escalate to full (Poisson) if requested or if gentle triage left defects and escalate_to_full=True
+        should_escalate = (
+            repair_cfg.repair_mode in ("full", "implicit")
+            or (repair_cfg.escalate_to_full and not health.is_export_ready)
+        )
+        if should_escalate:
+            try:
+                repair_notes.append(
+                    f"Deploying Screened Poisson reconstruction (depth={repair_cfg.poisson_depth})."
+                )
+                work_mesh = repair_trimesh_poisson(work_mesh, depth=repair_cfg.poisson_depth)
+                repair_notes.append("Completed Screened Poisson reconstruction.")
+                health = compute_mesh_health(
+                    work_mesh,
+                    check_intersections=repair_cfg.check_intersections,
+                )
+            except Exception as exc:
+                repair_notes.append(f"Poisson reconstruction failed ({exc}); retaining gentle triage mesh.")
+    else:
+        work_mesh = mesh.copy()
+        repair_notes = []
+        health = compute_mesh_health(
+            work_mesh,
+            check_intersections=repair_cfg.check_intersections,
+        )
+
+    if repair_cfg.log_health:
+        status_tag = "[PASS]" if health.is_export_ready else "[WARN]"
+        print(
+            f"{status_tag} Mesh health verification: "
+            f"V={health.vertex_count:,} F={health.face_count:,} "
+            f"chi={health.euler_characteristic} "
+            f"watertight={health.is_watertight} "
+            f"boundary_edges={health.boundary_edges} "
+            f"boundary_loops={health.boundary_loops} "
+            f"nm_edges={health.non_manifold_edges} "
+            f"nm_verts={health.non_manifold_vertices}"
+        )
+        if not health.is_export_ready and health.notes:
+            for note in health.notes:
+                print(f"       Health note: {note}")
+
+    if not health.is_export_ready:
+        import warnings
+
+        warnings.warn(
+            f"Exported mesh is not strictly 2-manifold or watertight: {'; '.join(health.notes)}. "
+            "Slicers such as Formlabs PreForm may flag this file as broken.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     stem = _output_stem(path)
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -340,18 +632,20 @@ def export_mesh(
 
     if "stl" in resolved:
         stl_path = parent / f"{stem}.stl"
-        mesh.export(str(stl_path))
+        work_mesh.export(str(stl_path))
         paths_written.append(stl_path)
 
     if "step" in resolved:
         step_path = parent / f"{stem}.step"
-        step_notes = mesh_to_step_gmsh(mesh, step_path, step_options)
+        step_notes = mesh_to_step_gmsh(work_mesh, step_path, step_options)
         paths_written.append(step_path)
 
+    all_notes = repair_notes + step_notes
     return ExportResult(
         paths_written=paths_written,
-        face_count=len(mesh.faces),
-        vertex_count=len(mesh.vertices),
-        watertight=bool(mesh.is_watertight),
-        step_notes=step_notes,
+        face_count=len(work_mesh.faces),
+        vertex_count=len(work_mesh.vertices),
+        watertight=bool(health.is_watertight),
+        step_notes=all_notes,
+        health_report=health,
     )

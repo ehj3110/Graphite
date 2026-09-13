@@ -143,19 +143,25 @@ def _trimesh_to_manifold(mesh: trimesh.Trimesh) -> manifold3d.Manifold:
     return manifold3d.Manifold(manifold_mesh)
 
 
-def _manifold_to_trimesh(manifold_mesh: manifold3d.Manifold) -> trimesh.Trimesh:
+def _manifold_to_trimesh(
+    manifold_mesh: manifold3d.Manifold,
+    process: bool = True,
+) -> trimesh.Trimesh:
     """
     Convert manifold3d.Manifold into trimesh.Trimesh.
     """
     raw_mesh = manifold_mesh.to_mesh()
     vertices = np.asarray(raw_mesh.vert_properties, dtype=np.float64)
     faces = np.asarray(raw_mesh.tri_verts, dtype=np.int64)
-    return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=process)
 
 
-def manifold_to_trimesh(manifold_mesh: manifold3d.Manifold) -> trimesh.Trimesh:
+def manifold_to_trimesh(
+    manifold_mesh: manifold3d.Manifold,
+    process: bool = True,
+) -> trimesh.Trimesh:
     """Convert manifold3d.Manifold to trimesh.Trimesh (for final export)."""
-    return _manifold_to_trimesh(manifold_mesh)
+    return _manifold_to_trimesh(manifold_mesh, process=process)
 
 
 # Public aliases for reusable manifold3d primitives and conversion helpers
@@ -476,7 +482,9 @@ def export_lattice_to_stl(
         add_spheres=True,
         crop_to_boundary=False,
     )
-    mesh.export(output_filename)
+    from graphite.io.mesh_export import export_mesh
+
+    export_mesh(mesh, output_filename, formats=("stl",))
 
 
 def generate_geometry(
@@ -489,6 +497,7 @@ def generate_geometry(
     trim_strut_ends: bool | None = None,
     crop_to_boundary: bool = True,
     return_manifold: bool = False,
+    circular_segments: int = 16,
 ) -> trimesh.Trimesh | tuple[trimesh.Trimesh, float] | tuple[manifold3d.Manifold, float]:
     """
     Generate explicit lattice geometry from topology nodes + struts.
@@ -512,6 +521,8 @@ def generate_geometry(
         return_manifold: If True and crop_to_boundary and boundary_mesh, skip trimesh
             conversion and return ``(Manifold, volume)``. Use ``manifold_to_trimesh()``
             for export when a mesh is required.
+        circular_segments: Tessellation count for cylinders and joint spheres. Manifold's
+            default sphere (~8) looks faceted/diamond-like; use >= 16 for round caps.
 
     Returns:
         If crop_to_boundary=True: trimesh.Trimesh (cropped lattice).
@@ -571,6 +582,8 @@ def generate_geometry(
     manifold_objects: list[manifold3d.Manifold] = []
     t0_cyl = time.perf_counter()
 
+    n_seg = max(8, int(circular_segments))
+
     for i, (a_idx, b_idx) in enumerate(struts_np):
         r_i = float(radii[i])
         trim_r = r_i if do_trim else 0.0
@@ -579,6 +592,7 @@ def generate_geometry(
             nodes_np[int(b_idx)],
             r_i,
             trim_radius=trim_r,
+            circular_segments=n_seg,
         )
         if cyl is not None:
             manifold_objects.append(cyl)
@@ -589,9 +603,9 @@ def generate_geometry(
             r_node = float(node_max_r[ni]) * scale
             if r_node > 0.0:
                 manifold_objects.append(
-                    manifold3d.Manifold.sphere(r_node).translate(
-                        tuple(float(x) for x in nodes_np[ni])
-                    )
+                    manifold3d.Manifold.sphere(
+                        r_node, circular_segments=n_seg
+                    ).translate(tuple(float(x) for x in nodes_np[ni]))
                 )
 
     if not manifold_objects:

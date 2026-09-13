@@ -120,14 +120,58 @@ from .surface_lattice import (
 )
 
 
+def generate_interlinked_lattice(*args, **kwargs):
+    """Lazy import wrapper for interlinked ring lattice generation."""
+    from .interlinked import generate_interlinked_lattice as _impl
+    return _impl(*args, **kwargs)
+
+
+def InterlinkedConfig(*args, **kwargs):
+    """Lazy import wrapper for InterlinkedConfig."""
+    from .interlinked import InterlinkedConfig as _impl
+    return _impl(*args, **kwargs)
+
+
+def generate_lofted_hex_scaffold(*args, **kwargs):
+    """Generate a boundary-conforming structured hexahedral scaffold lofted along a spine axis."""
+    from .lofted_scaffold import generate_lofted_hex_scaffold as _impl
+    return _impl(*args, **kwargs)
+
+
+def synthesize_lofted_lattice(*args, **kwargs):
+    """Synthesize explicit strut lattice topology onto deformed lofted hex elements."""
+    from .lofted_scaffold import synthesize_lofted_lattice as _impl
+    return _impl(*args, **kwargs)
+
+
+def synthesize_lofted_multilattice(*args, **kwargs):
+    """Synthesize multi-lattice topology across lofted hex layers with interface pyramids."""
+    from .lofted_scaffold import synthesize_lofted_multilattice as _impl
+    return _impl(*args, **kwargs)
+
+
+def compute_equal_phase_stations(*args, **kwargs):
+    """Compute 1D station coordinates along a spine using analytical equal-phase integration."""
+    from .lofted_scaffold import compute_equal_phase_stations as _impl
+    return _impl(*args, **kwargs)
+
+
 __all__ = [
     # Primary A15 API (routes to battle-tested a15_conformal.py)
     "generate_a15_conformal_lattice",
     "generate_conformal_scaffold",
     # Unified wrapper
     "generate_conformal_lattice",
+    # Lofted explicit hex
+    "generate_lofted_hex_scaffold",
+    "synthesize_lofted_lattice",
+    "synthesize_lofted_multilattice",
+    "compute_equal_phase_stations",
     # 2D & Surface Conformal Lattices
     "generate_surface_lattice",
+    # Interlinked print-in-place lattices
+    "generate_interlinked_lattice",
+    "InterlinkedConfig",
     # Chiral unit cells
     "generate_tetrachiral_cell",
     "generate_trichiral_cell",

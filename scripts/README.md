@@ -2,7 +2,9 @@
 
 Headless CLIs beside `app.py`. **Library code lives in `graphite/`** — scripts should stay thin.
 
-**Case study workflows:** prefer `graphite/case_studies/` + the `generate_cube_1mm_*` / `run_cube_1mm_*` wrappers below.
+**Agents:** [AGENTS.md](../AGENTS.md) first, then the matching [package README](../graphite/explicit/README.md) (or other `graphite/*/README.md`). Prefer **Tier 1** below; treat **Tier 2 / `archive/`** as cold — do not open first.
+
+**Case study workflows:** prefer [graphite/case_studies/README.md](../graphite/case_studies/README.md) + the `generate_cube_1mm_*` / `run_cube_1mm_*` wrappers below.
 
 ---
 
@@ -70,6 +72,12 @@ Outputs: `outputs/case_studies/cube_1mm/` — see [docs/CUBE_1MM_THREE_LATTICE_C
 | [`export_route3_conformal_dual_toros.py`](export_route3_conformal_dual_toros.py) | Route 3 Conformal Dual — Toros reference |
 | [`export_trophy_base_thin_conformal_dual.py`](export_trophy_base_thin_conformal_dual.py) | Trophy base — Conformal Dual (Method A) |
 | [`run_adapter_lattice.py`](run_adapter_lattice.py) | Adapter / Delaunay Kagome pipeline |
+
+### Explicit interlinked / chainmail
+
+| Script | Role |
+|--------|------|
+| [`generate_interlinked_review.py`](generate_interlinked_review.py) | European 4-in-1, Kusari, and 2x2x2 cube review deliverables generator |
 
 ---
 

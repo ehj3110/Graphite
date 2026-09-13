@@ -21,7 +21,8 @@ Human hub for deep guides. **Agents:** start at [`../AGENTS.md`](../AGENTS.md), 
 
 | Module | Capability card | Canonical doc(s) |
 |--------|-----------------|------------------|
-| Explicit | [graphite/explicit/README.md](../graphite/explicit/README.md) | [EXPLICIT_ENGINE.md](EXPLICIT_ENGINE.md), [HEX_EXPLICIT_ENGINE.md](HEX_EXPLICIT_ENGINE.md), [MODULAR_SC_CONFORMAL.md](MODULAR_SC_CONFORMAL.md), [CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md) |
+| Explicit | [graphite/explicit/README.md](../graphite/explicit/README.md) | [EXPLICIT_ENGINE.md](EXPLICIT_ENGINE.md), [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md), [HEX_EXPLICIT_ENGINE.md](HEX_EXPLICIT_ENGINE.md), [MODULAR_SC_CONFORMAL.md](MODULAR_SC_CONFORMAL.md), [CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md) |
+| Interlinked & PAMs | [graphite/explicit/interlinked/README.md](../graphite/explicit/interlinked/README.md) | [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [POLYCATED_ARCHITECTED_MATERIALS.md](POLYCATED_ARCHITECTED_MATERIALS.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md) |
 | Implicit | [graphite/implicit/README.md](../graphite/implicit/README.md) | [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md), [IMPLICIT_ENGINE.md](IMPLICIT_ENGINE.md), [TPMS_CALIBRATION_WORKFLOW.md](TPMS_CALIBRATION_WORKFLOW.md), [PIECEWISE_PRISM_LATTICE_GENERATION.md](PIECEWISE_PRISM_LATTICE_GENERATION.md) |
 | Math | [graphite/math/README.md](../graphite/math/README.md) | [LATTICE_MATH_ARCHITECTURE.md](LATTICE_MATH_ARCHITECTURE.md) |
 | Aristo FEA | [graphite/aristo/README.md](../graphite/aristo/README.md) | [ARISTO.md](ARISTO.md), [ARISTO_MESHING.md](ARISTO_MESHING.md), [ARISTO_REGRESSION_BASELINE.md](ARISTO_REGRESSION_BASELINE.md) |
@@ -44,6 +45,11 @@ Open these only when the task matches the sprint. Prefer the package card first.
 
 | Doc | Topic |
 |-----|--------|
+| [MULTI_LATTICE_BLENDING.md](MULTI_LATTICE_BLENDING.md) | Multi-lattice blending, node role transitions, and interface bridging |
+| [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md) | Custom unit cells, STL decompilation, NASA space fabric, and kinematic lattices |
+| [PAM_AUXETIC_INTERLINKED_HANDOFF.md](PAM_AUXETIC_INTERLINKED_HANDOFF.md) | Planning handoff: auxetics/interlinked capabilities vs proposed 3D PAMs (what exists, gaps, stack, architecture constraints) |
+| [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md) | Architectural handoff for frontier models: modular, plug-and-play unit cells, chainmail, and polycatenation engine |
+| [POLYCATED_ARCHITECTED_MATERIALS.md](POLYCATED_ARCHITECTED_MATERIALS.md) | Polycatenated Architected Materials (PAMs): C-6-TT, D-4-TET, J-4-OCT, DfAM clearance, and calibration |
 | [UNIVERSAL_DUAL_HANDOFF.md](UNIVERSAL_DUAL_HANDOFF.md) | Nodal Conformation / universal dual / wrist-rest (read before dual coding) |
 | [NODAL_CONFORMATION.md](NODAL_CONFORMATION.md) | Nodal Conformation design |
 | [SURFACE_DUAL_ROLES.md](SURFACE_DUAL_ROLES.md) | Universal / layered surface dual roles |

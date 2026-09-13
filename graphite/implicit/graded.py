@@ -4,8 +4,13 @@ Graphite Implicit Engine - Graded Lattices
 This module provides functionality to generate functionally graded TPMS lattices, 
 where the solid volume fraction varies spatially (e.g., thicker struts at the 
 bottom transitioning to thinner struts at the top). It supports simple axis-driven 
-gradients (X, Y, Z, Radial), modifier-mesh-driven gradients, and externally 
-supplied solid fraction fields (e.g., from FEA analysis).
+gradients (X, Y, Z, Radial), modifier-mesh-driven gradients, and an optional
+externally supplied ``solid_fraction_field`` array.
+
+**Note (Sep 2026):** Feeding Aristo FEA stress into ``solid_fraction_field`` is
+**not** a supported product workflow (machine crashes). Prefer piecewise /
+field-driven / chirped / boundary grading — see
+``docs/IMPLICIT_GRADING_AND_TEXTURES.md``.
 """
 from __future__ import annotations
 

@@ -18,6 +18,7 @@ This path is **orthogonal** to the explicit strut/GMSH pipeline: no tetrahedral 
 | Z-layer osteochondral-style \(L(z)\), \(SF(z)\) | `graphite/implicit/osteochondral.py` |
 | **Lofted** 1D unit-cell / SF grading (integrated phase, any Cartesian spine) | `graphite/implicit/field_driven.py` — see [LOFTED_GRADING.md](LOFTED_GRADING.md) |
 | Boundary-driven grading (surface IDs + dual EDT blend) | `graphite/implicit/boundary_graded.py` |
+| **Grading + surface textures catalog (start here)** | [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md) |
 | Streamlit wiring | `app.py` (imports above generators) |
 
 ## Reference / R&D & tests
@@ -207,6 +208,9 @@ F = \text{evaluate\_tpms}(\text{lattice\_type},\, K_{\text{grid}},\, X,\, Y,\, Z
 So: **large pores ↔ smaller \(k\)** where \(W\to 0\); **small pores ↔ larger \(k\)** where \(W\to 1\). The transition is **linear in \(W\)** in \(k\)-space, smoothed by smoothstep in the **driver** coordinate.
 
 ## 3.2 Related gradient modes (not the same as chirp)
+
+**Catalog (status, when to use, APIs):** [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md).  
+**FEA → grade:** not a product path — see that doc and [ARISTO.md](ARISTO.md).
 
 - **`graded.py`:** **Constant \(k\)**; gradient is on **solid fraction** \(\text{SF\_grid} = \phi_{\min} + W(\phi_{\max}-\phi_{\min})\) with the same \(W\) machinery (axis / radial / modifier).
 - **`piecewise_bands.py`:** **Hard Z bands** (or box height bands) with piecewise-constant **L** and **τ** on a **single-pass** full-domain EDT field — preferred for Gmsh volume meshing. API: `splitp_piecewise_cylinder_single_pass`, `splitp_piecewise_box_single_pass`, `cumulative_phase_w_from_l_profile`. CLI: `scripts/generate_piecewise_splitp_implicit.py`.
@@ -399,6 +403,8 @@ export_mesh(mesh, "outputs/lattice", formats=formats_from_request("both"))
 ```
 
 ## 10. Surface Micro-Structures Engine (Microgrooves & Micropillars)
+
+**Practical catalog + configs:** [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md) (§2–3). Summary below.
 
 Graphite provides a dual-engine procedural micro-texturing suite for medical scaffolds that operates directly on the extracted isosurface without requiring billions of micro-voxels:
 

@@ -10,6 +10,16 @@
 
 ---
 
+## Product decision (Sep 2026): no FEA-driven lattice grading
+
+**Dropped as a product goal:** mapping Aristo von Mises stress into a new graded lattice (`stress_to_vf_gradient`, `stress_to_strut_radius_map`, and scripts such as `generate_graded_bracket_lattice.py`).
+
+**Why:** end-to-end FEA → remap → remesh workflows are too heavy for this workstation (machine crashes / OOM-class failure). Aristo remains useful for **analysis and reporting** on already-generated lattices (Mirae slab, cube case study, quality gates).
+
+**Do instead for grading:** native implicit modes in [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md) (piecewise bands, field-driven / lofted, chirped \(k\), SF grading, boundary dual-EDT, calibration). Treat `graphite/aristo/stress_mapper.py` as **legacy / lab-only** — do not build new features on it.
+
+---
+
 ## Recent progress (Mirae lattice slab workstream)
 
 Work focused on the **3 × 1.5 × 5 mm** Mirae TPMS slab in  

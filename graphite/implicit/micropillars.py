@@ -539,9 +539,17 @@ def generate_micropillars(
     if not cylinders:
         return base_mesh.copy()
 
-    # Step 3: Batch compose pillar forest
+    # Step 3: Batch compose or union pillar forest
     t1 = time.perf_counter()
-    pillar_forest = manifold3d.Manifold.compose(cylinders)
+    min_clearance = (
+        config.min_spacing_mm
+        if config.min_spacing_mm is not None
+        else 0.85 * config.spacing_mm
+    )
+    if min_clearance < config.diameter_mm:
+        pillar_forest = manifold3d.Manifold.batch_boolean(cylinders, manifold3d.OpType.Add)
+    else:
+        pillar_forest = manifold3d.Manifold.compose(cylinders)
     t_compose = time.perf_counter() - t1
 
     if return_separate_forest:

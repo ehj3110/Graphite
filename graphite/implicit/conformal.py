@@ -24,10 +24,10 @@ from graphite.math.tpms import evaluate_tpms
 def _compute_L_and_k(
     pore_size: float | None, unit_cell_size: float | None, solid_fraction: float
 ) -> tuple[float, float]:
-    if pore_size is not None:
-        L = pore_size / (1.0 - 1.15 * solid_fraction)
-    elif unit_cell_size is not None:
+    if unit_cell_size is not None:
         L = unit_cell_size
+    elif pore_size is not None:
+        L = pore_size / (1.0 - 1.15 * solid_fraction)
     else:
         raise ValueError("Must provide either pore_size or unit_cell_size")
     k = 2.0 * np.pi / L
@@ -50,6 +50,9 @@ def generate_conformal_lattice(
     export_formats: tuple[str, ...] | str | None = None,
     exact_cad_trim: bool = False,
     trim_dilation_mm: float | None = None,
+    tau: float | None = None,
+    rotation_deg: tuple[float, float, float] | None = None,
+    micropillar_config: Any | None = None,
 ) -> trimesh.Trimesh:
     """
     Generate a conformal TPMS lattice inside an input STL using EDT-based CAD SDF.
@@ -99,14 +102,25 @@ def generate_conformal_lattice(
         mesh, resolution
     )
 
-    L, k = _compute_L_and_k(pore_size, unit_cell_size, solid_fraction)
-    F = evaluate_tpms(lattice_type, k, X, Y, Z)
-
-    if wall_thickness_mm is not None:
-        tau = float(tau_from_wall_thickness_mm(wall_thickness_mm, L).ravel()[0])
+    if rotation_deg is not None:
+        from scipy.spatial.transform import Rotation
+        R = Rotation.from_euler("xyz", rotation_deg, degrees=True).as_matrix()
+        X_eval = R[0, 0] * X + R[0, 1] * Y + R[0, 2] * Z
+        Y_eval = R[1, 0] * X + R[1, 1] * Y + R[1, 2] * Z
+        Z_eval = R[2, 0] * X + R[2, 1] * Y + R[2, 2] * Z
     else:
-        tau = float(solid_fraction)
-    solid_field = np.abs(F) - tau
+        X_eval, Y_eval, Z_eval = X, Y, Z
+
+    L, k = _compute_L_and_k(pore_size, unit_cell_size, solid_fraction)
+    F = evaluate_tpms(lattice_type, k, X_eval, Y_eval, Z_eval)
+
+    if tau is not None:
+        tau_val = float(tau)
+    elif wall_thickness_mm is not None:
+        tau_val = float(tau_from_wall_thickness_mm(wall_thickness_mm, L).ravel()[0])
+    else:
+        tau_val = float(solid_fraction)
+    solid_field = np.abs(F) - tau_val
 
     if exact_cad_trim:
         dilation = float(trim_dilation_mm if trim_dilation_mm is not None else 3.0 * resolution)
@@ -208,6 +222,10 @@ def generate_conformal_lattice(
                 )
         except Exception as exc:
             print(f"  Warning: exact_cad_trim failed ({exc}); retaining implicit isosurface.")
+
+    if micropillar_config is not None:
+        from graphite.implicit.micropillars import generate_micropillars
+        mesh_out = generate_micropillars(mesh_out, micropillar_config)
 
     if center_origin:
         mesh_out.vertices -= mesh_out.centroid

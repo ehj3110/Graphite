@@ -2,6 +2,8 @@
 
 Graphite is a conformal lattice R&D pipeline for repairing difficult STL shells, tetrahedralizing them, and generating printable lattice solids.
 
+**Docs:** humans → [docs/README.md](docs/README.md); agents → [AGENTS.md](AGENTS.md) then a `graphite/*/README.md` capability card.
+
 ## Quickstart
 
 Run the UI:
@@ -95,6 +97,18 @@ Graphite Explicit includes dedicated unit-cell generators and conformal cylindri
 - **Seam-Free Cylindrical Wrapping:** Analytical basis rotation prevents helical shear seams across periodic boundaries.
 
 See [docs/EXPLICIT_CHIRAL_AUXETIC_LATTICES.md](docs/EXPLICIT_CHIRAL_AUXETIC_LATTICES.md) for theory, equations, and API guides.
+
+## Interlinked & Kinematic Metamaterials
+
+Graphite includes a unified, unit-cell-driven engine for non-welded, print-in-place assemblies, chainmail fabrics, and polycatenated metamaterials (`graphite.explicit.interlinked`):
+
+- **Declarative Cell Protocol & Catalog:** Modular unit cells (`C-6-TT`, `D-4-TET`, `J-4-OCT`, `European 4-in-1`, `Japanese Kusari`, `NASA Space Fabric`) registered in `InterlinkedRegistry`.
+- **Spatial Seeding Topologies:** Cartesian, Staggered Brick, Hexagonal close-pack, Diamond cubic, pitch-matched Cylindrical wraps ($2\pi R = N_\theta \cdot a_\theta$), and Spherical Fibonacci shells.
+- **3-Tier Boundary Engine:** Policy A (SDF/Mesh Inset Culling for zero cut rings), Policy B (Perimeter link tagging), and Policy C (Solid exterior perimeter frame welding for gripping/handling).
+- **Two-Tier Clearance & Pitch Solver:** $O(N \log N)$ KD-tree broad phase + vectorized narrow phase clearance verification, Gauss linking numbers, and automatic pitch inversion ($\Delta_{\text{target}} \to a_0$).
+- **Instanced 3MF Writer:** ISO/IEC 5165 compliant single-prototype instancing with $>98\%$ compression vs. monolithic multi-body STLs.
+
+See [graphite/explicit/interlinked/README.md](graphite/explicit/interlinked/README.md) and [docs/INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](docs/INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md) for details.
 
 ## Repository layout
 

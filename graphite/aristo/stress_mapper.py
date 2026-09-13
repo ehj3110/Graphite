@@ -1,10 +1,15 @@
 """
 Aristo Stress Mapper — Von Mises to Gradient Field Adapter
 
+**LEGACY / NOT A PRODUCT PATH (Sep 2026).** FEA-driven lattice grading was
+dropped: end-to-end remap workflows crash the workstation. Prefer native
+implicit grading in ``docs/IMPLICIT_GRADING_AND_TEXTURES.md``. Keep this
+module for unit tests / archival scripts only — do not build new features here.
+
 Maps FEA stress results from fine tetrahedral meshes onto Graphite's
 target domains (implicit voxel grids or explicit struts).
 
-Phase 1 focus: Implicit TPMS engine (solid fraction gradient).
+Historical Phase 1 focus: Implicit TPMS engine (solid fraction gradient).
 Enforces hard manufacturing constraints:
   - Solid fraction (Vf) capped at 50%
   - Implicit unit-cell size floor of 1.0 mm
