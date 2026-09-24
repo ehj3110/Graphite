@@ -1,4 +1,4 @@
-"""Shared mesh I/O utilities (STL, STEP export)."""
+"""Shared mesh I/O utilities (STL, 3MF, STEP export)."""
 
 from graphite.io.lattice_manifest import (
     build_implicit_output_basename,

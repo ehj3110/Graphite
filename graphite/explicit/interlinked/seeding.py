@@ -339,6 +339,7 @@ def instantiate_lattice_on_sites(
     cell_pitch: float,
     id_start: int = 0,
     context: dict[str, Any] | None = None,
+    sublattice_ids: Sequence[str] | None = None,
 ) -> list[InterlinkedParticle]:
     """
     Instantiate and place all BasisParticles of an InterlinkedCell across
@@ -357,6 +358,7 @@ def instantiate_lattice_on_sites(
         cell_pitch: Local characteristic spacing in mm.
         id_start: Initial particle ID.
         context: Optional dictionary passed to cell orientation functions.
+        sublattice_ids: Optional sequence of sublattice IDs ('A', 'B', etc.) per site.
 
     Returns:
         List of placed InterlinkedParticle instances.
@@ -371,13 +373,17 @@ def instantiate_lattice_on_sites(
         F_site = frames[s_idx]
         ijk = tuple(grid_indices[s_idx].tolist())
 
+        site_ctx = dict(ctx)
+        if sublattice_ids is not None and s_idx < len(sublattice_ids):
+            site_ctx["sublattice"] = sublattice_ids[s_idx]
+
         # Instantiate cell basis at local site
         local_parts = cell.instantiate_site(
             grid_index=ijk,
             site_origin=np.zeros(3, dtype=np.float64),
             cell_pitch=cell_pitch,
             id_start=pid,
-            context=ctx,
+            context=site_ctx,
         )
 
         for p in local_parts:

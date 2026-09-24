@@ -128,10 +128,10 @@ class TestD4TETDiamondTiling:
     def test_conventional_cell_size_sizing(self):
         from graphite.explicit.interlinked.pams import calibrate_d4tet_edge_length
 
-        a = 10.0
+        a = 20.0
         r = 0.5
         L = calibrate_d4tet_edge_length(a, r, 0.40)
-        assert 6.5 <= L <= 8.5
+        assert 11.0 <= L <= 13.0
         res = generate_d4tet_diamond_tiling(
             repeats=(1, 1, 1),
             strut_radius=r,

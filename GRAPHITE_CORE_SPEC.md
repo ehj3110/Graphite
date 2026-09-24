@@ -134,6 +134,23 @@ class NodalConformationResult:
     dual_nodes_projected: np.ndarray  # shape: (V_dual, 3), dtype: float64
     surface_gids: set[int]
     report: dict = field(default_factory=dict)
+    dual_solid: object = field(default=None)  # manifold3d.Manifold | None
+```
+
+#### `PlanarSweepConfig`
+*Module:* [`graphite.explicit.planar_surface_sweep`](graphite/explicit/planar_surface_sweep.py)
+```python
+@dataclass
+class PlanarSweepConfig:
+    """Configuration specification for Planar Slicing Contour Sweep surface duals."""
+    dual_width: float = 1.6  # lateral ribbon width in mm
+    dual_thickness: float = 0.8  # target finished strut thickness in mm
+    inward_depth_factor: float = 1.5  # multiplier on dual_thickness for initial inward sweep depth
+    outer_margin: float = 0.4  # outward extension past CAD surface in mm
+    n_sweep_pts: int = 8  # sample stations along contour arc
+    extend_factor: float = 0.4  # endpoint elongation multiplier (x dual_width) along tangent
+    valley_prune_sdf: float = 0.5  # midpoint SDF threshold (mm) for pruning empty valley chords
+    boundary_promote_eps: float = 0.1  # distance threshold (mm) for promoting boundary volume struts
 ```
 
 #### `DependencyStatus`
@@ -589,29 +606,67 @@ def generate_geometry(
     add_spheres: bool = False,
     joint_sphere_scale: float = 1.15,
     trim_strut_ends: bool | None = None,
+    clean_miter: bool = True,
     crop_to_boundary: bool = True,
     return_manifold: bool = False,
     circular_segments: int = 16,
 ) -> trimesh.Trimesh | tuple[trimesh.Trimesh, float] | tuple[manifold3d.Manifold, float]:
     """
     Generate explicit lattice solid geometry from topology nodes + struts
-    using native manifold3d CSG cylinders, node spheres, and boolean trimming.
+    using native manifold3d CSG cylinders, bisector clean miter trimming (clean_miter=True default),
+    optional node spheres, and boolean trimming.
     ``circular_segments`` controls cylinder and joint-sphere tessellation (>=16 recommended for round caps).
     """
+
+#### `build_clean_miter_truss`
+*Module:* [`graphite.explicit.geometry_module`](graphite/explicit/geometry_module.py)
+```python
+def build_clean_miter_truss(
+    nodes: np.ndarray,  # (N, 3) float64
+    struts: np.ndarray,  # (M, 2) int64
+    strut_radius: float | np.ndarray,  # scalar or (M,) float64
+    circular_segments: int = 16,
+) -> trimesh.Trimesh:
+    """
+    Build explicit wireframe truss solid with true clean mitered joints at all nodes.
+    Both ends of each cylinder are extended past incident nodes and trimmed by mutual
+    bisector planes of incident struts, eliminating flat cutoff caps and notch defects.
+    """
+```
 ```
 
 #### `generate_conformal_lattice`
-*Module:* [`graphite.explicit.conformal_generator`](graphite/explicit/conformal_generator.py)
+*Module:* [`graphite.explicit`](graphite/explicit/__init__.py)
 ```python
 def generate_conformal_lattice(
-    cad_mesh: trimesh.Trimesh,
-    cell_size: float | tuple[float, float, float],
-    target_solid_fraction: float = 0.15,
+    cad_filepath: str | Path | trimesh.Trimesh,
+    cell_size: float | tuple[float, float, float] | np.ndarray,
+    strut_radius: float = 0.5,
     lattice_type: str = "SC",
+    rule_name: str = "octahedral",
+    legacy: bool = False,
+    **kwargs,
+) -> dict[str, Any]:
+    """Unified entrypoint for conformal lattice generation.
+    lattice_type='A15' -> routes to A15 Kagome dual (a15_conformal.py)
+    lattice_type='SC'  -> routes to canonical Nodal Conformation + Planar Slicing Surface Dual (default)
+                          pass legacy=True to access archived conformal_generator hex morph
+    """
+
+def generate_sc_conformal_lattice(
+    cad_filepath: str | Path | trimesh.Trimesh,
+    cell_size: float | tuple[float, float, float] | np.ndarray,
+    strut_radius: float = 0.5,
+    lattice_type: str = "SC",
+    export_dir: str | Path | None = None,
+    skip_sweep: bool = False,
+    dual_width: float | None = None,
+    dual_thickness: float | None = None,
+    surface_dual_mode: str = "planar_sweep",
     rule_name: str = "octahedral",
     **kwargs,
 ) -> dict[str, Any]:
-    """Unified entrypoint for conformal lattice generation."""
+    """Canonical SC Nodal Conformation + Planar Slicing Surface Dual generator."""
 ```
 
 #### Lofted Scaffold & Multi-Lattice APIs
@@ -887,7 +942,163 @@ def generate_pam_lattice(
     strut_radius: float = 0.55,
     min_clearance: float = 0.40,
 ) -> PAMLatticeResult:
-    """Tripartite X-n-abc entrypoint. Supported: D-4-TET, C-6-TT, C-6-CO, J-4-OCT."""
+def generate_c6tt_lattice(
+    repeats: tuple[int, int, int] = (2, 2, 2),
+    size: float = 10.0,
+    strut_radius: float = 0.50,
+    min_clearance: float = 0.30,
+    *,
+    unit_cell_size: float | None = None,
+    build_meshes: bool = True,
+) -> PAMLatticeResult:
+    """Canonical alias for generate_c6tt_cubic_tiling (C-6-TT bulk polycatenated lattice)."""
+
+#### PAM Contact Manifold & Jamming Mechanics
+*Module:* [`graphite.explicit.interlinked.clearance`](graphite/explicit/interlinked/clearance.py)
+```python
+def classify_particle_contact(
+    distance: float,
+    contact_threshold: float = 0.05,
+) -> Literal["compressive", "tensile", "separated"]:
+    """Classify mechanical contact state: 'compressive' (d < 0), 'tensile' (0 <= d <= eps), 'separated' (d > eps)."""
+
+def analyze_interparticle_contact_manifold(
+    particles: Sequence[PAMParticle],
+    strut_radius: float,
+    contact_threshold: float = 0.05,
+) -> dict[str, Any]:
+    """Pairwise surface-to-surface distance analysis with LS-DEM contact categorization and coordination stats."""
+
+def compute_jammed_bending_modulus(
+    e0: float,
+    shear_strain: float,
+    volume_fraction: float = 0.25,
+    alpha: float = 2.0,
+) -> float:
+    """Jammed bending modulus power law Eb = E0 * gamma^alpha * phi (Zhou et al., Science 2025)."""
+
+def compute_jamming_compressive_modulus(
+    e0: float,
+    shear_strain: float,
+    volume_fraction: float = 0.25,
+    beta: float = 1.5,
+) -> float:
+    """Jamming compressive modulus power law Ec = E0 * gamma^beta * phi (Wang et al., Nature 2021)."""
+```
+
+### 3.8 Damage-Programmable Metamaterials
+*Module:* [`graphite.explicit.damage.dp_cells`](graphite/explicit/damage/dp_cells.py)  
+*Literature Reference:* Gao et al., *Nature* 628, 776–782 (2024): *"Additive fracture energy in hierarchical damage-programmable metamaterials"*
+
+#### Hierarchy Architecture & Relative Toughness
+- **T0 Base Cell:** Classical Body-Centered Cubic (BCC) base wireframe. Relative energy \(G_c = 1.0\,G_0\).
+- **T1 Internal Hierarchy:** BCC core reinforced with orthogonal axis-aligned microfibers. Relative energy \(G_c = 2.5\,G_0\) (+150% fracture resistance).
+- **T2 Internal Hierarchy:** BCC core reinforced with face-diagonal microfibers. Relative energy \(G_c = 1.8\,G_0\) (+80% fracture resistance).
+- **T3 Internal Hierarchy:** BCC core reinforced with body-diagonal cross microfibers. Relative energy \(G_c = 1.4\,G_0\) (+40% fracture resistance).
+- **Additive Energy Accumulation:** Multiscale hierarchy exhibits independent energy dissipation mechanisms yielding a total fracture energy boost of +1,235% (\(G_c^{\text{total}} = 13.35\,G_0\)):
+  $$G_c^{\text{total}} = G_0 \left(1 + \sum_{i=1}^3 \Delta G_i\right) \cdot \eta_{\text{multiscale}}$$
+
+```python
+def generate_bcc_base_cell(
+    cell_size: float = 10.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate 9-node, 8-strut Body-Centered Cubic (BCC) unit cell."""
+
+def generate_dp_cell(
+    cell_type: Literal["T0", "T1", "T2", "T3"] = "T0",
+    cell_size: float = 10.0,
+    microfiber_radius_ratio: float = 0.4,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Generate hierarchical damage-programmable unit cell with per-strut hierarchy flags."""
+
+def calculate_fracture_energy(
+    hierarchy_level: Literal["T0", "T1", "T2", "T3", "all"] = "all",
+    base_energy_j_m2: float = 1000.0,
+) -> dict[str, float]:
+    """Calculate theoretical fracture energy release rate demonstrating +1,235% additive enhancement."""
+
+def generate_damage_programmable_lattice(
+    dims: tuple[int, int, int] = (3, 3, 3),
+    cell_size: float = 10.0,
+    spatial_partition: dict[str, Sequence[tuple[int, int, int]]] | None = None,
+    strut_radius: float = 0.5,
+    microfiber_radius_ratio: float = 0.4,
+    clean_miter: bool = True,
+    build_mesh: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, trimesh.Trimesh | None, dict[str, Any]]:
+    """Synthesize multi-cell damage-programmable lattice partitioned into crack-guidance (S_g),
+    crack-arresting (S_c), and background (S_b) zones. Welds shared nodes and enforces clean miter joints.
+    """
+```
+
+### 3.9 Multilayer & Hybrid Level-Set Metamaterials
+*Module:* [`graphite.explicit.hybrid.levelset`](graphite/explicit/hybrid/levelset.py)  
+*Literature Reference:* Liu et al., *Nature Communications* 15, 4172 (2024): *"Ultrastiff metamaterials generated through a multilayer strategy and topology optimization"*
+
+#### Mathematical Formulations
+1. **Regularized Heaviside Density Projection:**
+   $$H_\epsilon(\phi) = \begin{cases} 0 & \phi < -\epsilon \\ \frac{1}{2} \left[1 + \frac{\phi}{\epsilon} + \frac{1}{\pi}\sin\left(\frac{\pi\phi}{\epsilon}\right)\right] & |\phi| \le \epsilon \\ 1 & \phi > \epsilon \end{cases}$$
+2. **Regularized Dirac Delta Derivative:**
+   $$h_\epsilon(\phi) = \frac{dH_\epsilon}{d\phi} = \begin{cases} \frac{1}{2\epsilon} \left[1 + \cos\left(\frac{\pi\phi}{\epsilon}\right)\right] & |\phi| \le \epsilon \\ 0 & \text{otherwise} \end{cases}$$
+3. **Level-Set Regularization Step:**
+   $$\phi^* = \alpha \cdot \phi \quad (\alpha \in (0, 1])$$
+4. **Vectorized 3D Mean Curvature Field:**
+   $$\mathbf{n} = \frac{\nabla \phi}{\|\nabla \phi\|_2}, \quad H = \frac{1}{2}\nabla \cdot \mathbf{n} = \frac{1}{2}\left(\frac{\partial n_x}{\partial x} + \frac{\partial n_y}{\partial y} + \frac{\partial n_z}{\partial z}\right)$$
+   Minimal surface condition \(H = 0\) verifies zero parasitic interface bending.
+5. **Continuous Multi-Morphology Hybrid Blending:**
+   $$\Phi_{\text{hybrid}}(\mathbf{x}) = (1 - w(\mathbf{x}))\,\Phi_A(\mathbf{x}) + w(\mathbf{x})\,\Phi_B(\mathbf{x}), \quad w(\mathbf{x}) = H_\epsilon\left(\frac{\mathbf{x}_{\text{axis}} - x_c}{W / 2}\right)$$
+
+```python
+def regularized_heaviside(
+    phi: float | np.ndarray,
+    epsilon: float = 0.5,
+) -> float | np.ndarray:
+    """Evaluate C^1-continuous sinusoidal regularized Heaviside step function."""
+
+def heaviside_derivative(
+    phi: float | np.ndarray,
+    epsilon: float = 0.5,
+) -> float | np.ndarray:
+    """Evaluate derivative h_eps(phi) = dH_eps/dphi (regularized Dirac delta)."""
+
+def levelset_regularization_step(
+    phi: np.ndarray,
+    alpha: float = 0.95,
+) -> np.ndarray:
+    """Apply periodic level-set function regularization step phi* = alpha * phi."""
+
+def mean_curvature_field(
+    phi: np.ndarray,
+    spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
+) -> np.ndarray:
+    """Compute 3D mean curvature field H = 0.5 * div(grad(phi) / |grad(phi)|)."""
+
+def blend_lattice_morphologies(
+    field_a: np.ndarray,
+    field_b: np.ndarray,
+    transition_coord: np.ndarray,
+    transition_center: float = 0.0,
+    transition_width: float = 1.0,
+    epsilon: float = 0.5,
+    axis: int = 0,
+) -> np.ndarray:
+    """Blend two 3D scalar morphology fields across a C^1 continuous Heaviside interface."""
+
+def generate_hybrid_levelset_lattice(
+    dims: tuple[int, int, int] = (60, 60, 60),
+    physical_size: tuple[float, float, float] = (30.0, 30.0, 30.0),
+    morphology_a: str = "schwarz_p",
+    morphology_b: str = "gyroid",
+    unit_cell_size: float = 10.0,
+    transition_width: float = 6.0,
+    transition_axis: str = "x",
+    iso_offset: float = 0.35,
+    is_sheet: bool = True,
+    epsilon: float = 0.5,
+    build_mesh: bool = True,
+    cap_boundaries: bool = True,
+) -> tuple[np.ndarray, trimesh.Trimesh | None, dict[str, Any]]:
+    """Synthesize multi-morphology hybrid lattice with smooth level-set interface and planar CAD boundary capping."""
 ```
 
 ---

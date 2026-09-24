@@ -21,6 +21,12 @@ from graphite.explicit.interlinked import (
     JapaneseKusariCell,
     NasaSpaceFabricCell,
     pam_particles_to_meshes,
+    get_available_support_recipes,
+    export_seed_cell_stl,
+    apply_support_recipe,
+    create_custom_supported_particle,
+    ParticleGeometry,
+    InterlinkedParticle,
 )
 
 
@@ -100,12 +106,17 @@ class TestJ4OctCell:
         parts_even = cell.instantiate_site((0, 0, 0), np.zeros(3), 10.0, id_start=0)
         np.testing.assert_allclose(parts_even[0].rotation, np.eye(3), atol=1e-8)
 
-        # Odd parity: 45-deg rotation about Z
-        parts_odd = cell.instantiate_site((1, 0, 0), np.array([10.0, 0.0, 0.0]), 10.0, id_start=1)
+        # Odd parity along X: 45-deg rotation about X
+        parts_odd_x = cell.instantiate_site((1, 0, 0), np.array([10.0, 0.0, 0.0]), 10.0, id_start=1)
         c45 = np.cos(np.pi / 4.0)
         s45 = np.sin(np.pi / 4.0)
-        expected_R = np.array([[c45, -s45, 0.0], [s45, c45, 0.0], [0.0, 0.0, 1.0]])
-        np.testing.assert_allclose(parts_odd[0].rotation, expected_R, atol=1e-8)
+        expected_Rx = np.array([[1.0, 0.0, 0.0], [0.0, c45, -s45], [0.0, s45, c45]])
+        np.testing.assert_allclose(parts_odd_x[0].rotation, expected_Rx, atol=1e-8)
+
+        # Odd parity along Y: 45-deg rotation about Y
+        parts_odd_y = cell.instantiate_site((0, 1, 0), np.array([0.0, 10.0, 0.0]), 10.0, id_start=2)
+        expected_Ry = np.array([[c45, 0.0, s45], [0.0, 1.0, 0.0], [-s45, 0.0, c45]])
+        np.testing.assert_allclose(parts_odd_y[0].rotation, expected_Ry, atol=1e-8)
 
 
 class TestEuropean4in1Cell:
@@ -216,3 +227,101 @@ class TestNasaSpaceFabricCell:
         p = parts[0]
         assert p.particle_id == 0
         assert p.geometry_type == "nasa_hexagon_proxy"
+
+
+class TestPAMSupportRecipes:
+    def test_get_available_support_recipes(self):
+        recipes = get_available_support_recipes("c6tt")
+        assert isinstance(recipes, list)
+        assert len(recipes) >= 3
+        assert "None (Unprinted / Free)" in recipes
+        assert "Vertical Pin Bridges" in recipes
+        assert "Base Plate Breakaway Pins" in recipes
+
+    def test_export_seed_cell_stl(self, tmp_path):
+        out_stl = tmp_path / "c6tt_seed.stl"
+        res_path = export_seed_cell_stl("c6tt", pitch=10.0, wire_radius=0.4, output_path=out_stl)
+        assert res_path == out_stl
+        assert out_stl.is_file()
+        assert out_stl.stat().st_size > 0
+
+    def test_apply_support_recipe_vertical_pin_bridges(self):
+        cell = InterlinkedRegistry.get("c6tt")()
+        pts = cell.instantiate_site((0, 0, 0), np.zeros(3), 10.0)
+        proto = pts[0].geometry
+        orig_node_count = len(proto.nodes)
+        orig_strut_count = len(proto.struts)
+
+        supported = apply_support_recipe(proto, "Vertical Pin Bridges", wire_radius=0.4)
+        assert isinstance(supported, ParticleGeometry)
+        assert len(supported.nodes) > orig_node_count
+        assert len(supported.struts) > orig_strut_count
+        assert supported.metadata.get("pin_diameter") == 0.25
+        assert supported.metadata.get("pin_radius") == 0.125
+        assert len(supported.metadata.get("pin_struts", [])) > 0
+        assert "solid_mesh" in supported.metadata
+        solid = supported.metadata["solid_mesh"]
+        assert solid.is_watertight
+
+    def test_apply_support_recipe_none_and_unrecognized(self):
+        cell = InterlinkedRegistry.get("c6tt")()
+        pts = cell.instantiate_site((0, 0, 0), np.zeros(3), 10.0)
+        proto = pts[0].geometry
+
+        # "None" returns unchanged
+        res_none = apply_support_recipe(proto, "None (Unprinted / Free)", wire_radius=0.4)
+        assert len(res_none.nodes) == len(proto.nodes)
+        assert len(res_none.struts) == len(proto.struts)
+
+        # Unrecognized recipe returns unchanged
+        res_unknown = apply_support_recipe(proto, "Nonexistent Recipe", wire_radius=0.4)
+        assert len(res_unknown.nodes) == len(proto.nodes)
+        assert len(res_unknown.struts) == len(proto.struts)
+
+    def test_create_custom_supported_particle(self):
+        import trimesh
+        from graphite.explicit.interlinked.generator import _particles_to_combined_mesh
+
+        cell = InterlinkedRegistry.get("c6tt")()
+        pts = cell.instantiate_site((0, 0, 0), np.zeros(3), 10.0)
+        base_p = pts[0]
+
+        custom_mesh = trimesh.creation.box(extents=[3.0, 3.0, 3.0])
+        custom_p = create_custom_supported_particle(custom_mesh, base_p)
+
+        assert isinstance(custom_p, InterlinkedParticle)
+        assert custom_p.particle_id == base_p.particle_id
+        assert custom_p.geometry.metadata.get("solid_mesh") is custom_mesh
+
+        # Verify seamless instancing into combined mesh
+        combined = _particles_to_combined_mesh([custom_p], wire_radius=0.4)
+        assert len(combined.vertices) == len(custom_mesh.vertices)
+        assert len(combined.faces) == len(custom_mesh.faces)
+        assert combined.is_watertight
+
+
+class TestCADAutoRepair:
+    def test_load_cad_mesh_primitive_clean(self):
+        from graphite.ui.surface_preview import load_cad_mesh
+        mesh = load_cad_mesh("primitive", primitive_shape="Cube", size=15.0)
+        assert mesh.is_watertight
+        assert len(mesh.faces) == 12
+
+    def test_load_cad_mesh_broken_auto_repair(self, tmp_path):
+        import trimesh
+        from graphite.ui.surface_preview import load_cad_mesh
+
+        box = trimesh.creation.box()
+        raw_verts = box.vertices[box.faces].reshape(-1, 3)
+        raw_faces = np.arange(len(box.faces) * 3).reshape(-1, 3)
+        # Invert winding of first triangle
+        raw_faces[0] = raw_faces[0, [0, 2, 1]]
+        broken = trimesh.Trimesh(vertices=raw_verts, faces=raw_faces, process=False)
+        assert not broken.is_watertight
+
+        bad_stl = tmp_path / "broken.stl"
+        broken.export(str(bad_stl))
+
+        repaired = load_cad_mesh("file", file_path=bad_stl)
+        assert repaired.is_watertight
+        assert len(repaired.vertices) == 8

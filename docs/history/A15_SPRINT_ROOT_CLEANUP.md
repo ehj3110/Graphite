@@ -1,0 +1,105 @@
+﻿# A15 sprint root cleanup (2026-07-24)
+
+Deleted regenerable / troubleshooting media that had accumulated at the repo root during the June–July 2026 A15 / Kagome / surface-dual sprint (Option A — delete, no zip archive).
+
+Also removed the unused Anaconda `venv/` (Python 3.13). Keep `.venv` (Graphite/Aristo) and `.venv_torch` (Vocal, Python 3.12).
+
+Rebuild torture STLs via `tests/export_torture_stls.py` if needed.
+
+## Deleted filenames (95)
+
+- `A15_2x2x025_TetEdgesOnly.stl`
+- `A15_2x2x025_Voronoi.stl`
+- `A15_2x2x1_CageOnly.stl`
+- `A15_2x2x1_Clipped_NoDual.stl`
+- `A15_2x2x1_Clipped_TopologicalDual.stl`
+- `A15_2x2x1_Clipped_WithDual.stl`
+- `A15_2x2x1_Combined.stl`
+- `A15_2x2x1_EdgeMidpoint_Cage.stl`
+- `A15_2x2x1_EdgeMidpoint_Combined.stl`
+- `A15_2x2x1_HalfCellCage.stl`
+- `A15_2x2x1_NoSnap_NoDual.stl`
+- `A15_2x2x1_Snapped_NoDual.stl`
+- `A15_2x2x1_Snapped_WithDual.stl`
+- `A15_2x2x1_Voronoi.stl`
+- `A15_2x2x2.75_Snapped_WithDual.stl`
+- `A15_Cage_1_Undeformed.stl`
+- `A15_Cage_2_Snapped.stl`
+- `A15_Cage_3_SurfaceDualOnly.stl`
+- `A15_Half_Plane_Flattened.stl`
+- `A15_Quarter_Plane_Flattened.stl`
+- `A15_Quarter_Plane_TetStruts.png`
+- `A15_SpecialCube_Combined.stl`
+- `A15_SpecialCube_KagomeOnly.stl`
+- `A15_SpecialCube_SharedEdgeDualOnly.stl`
+- `A15_Tet_Skeleton.stl`
+- `A15_Voronoi_Deformed_Template.stl`
+- `A15_Voronoi_Mapped_Overlay.stl`
+- `Array_2x2x0.25_Cage_Only.stl`
+- `Array_2x2x0.25_Combined.stl`
+- `Array_2x2x0.5_Cage_Only.stl`
+- `Array_2x2x0.5_Combined.stl`
+- `Authored_Tet_Slab_Overlay.png`
+- `Authored_Tet_Slab_Overlay_Z0.25.png`
+- `Authored_Tet_Slab_Overlay_Z1.0.png`
+- `boundary_tet_mesh.stl`
+- `Box_Cage_Only.stl`
+- `Box_Combined_Lattice.stl`
+- `Box_Undeformed_Cage_Only.stl`
+- `Box_Undeformed_Combined.stl`
+- `Box_Undeformed_Lattice_Only.stl`
+- `Box_Undeformed_Tet_Skeleton.stl`
+- `Cage_vs_Slab_Comparison.png`
+- `Carbon3D_12_5_5_5_5_Projection.png`
+- `Comparison_Gating_Z0.25.png`
+- `Comparison_Gating_Z0.50.png`
+- `error_report.txt`
+- `graded_split_p_flow_chamber.png`
+- `HalfCell_Cage_Only.stl`
+- `Hybrid_Slab_Hexagon_Asymmetric.png`
+- `Hybrid_Slab_Hexagon_Z0.png`
+- `internal_lattice.obj`
+- `Internal_Lattice_Z0.25.stl`
+- `Internal_Lattice_Z0.50.stl`
+- `Internal_Lattice_Z0.75.stl`
+- `Internal_Lattice_Z1.00.stl`
+- `Kagome_Combined_Dual_Z0.25.png`
+- `Kagome_Natural_Struts_Z0.25.png`
+- `Kagome_Slab_Z0.25.png`
+- `Kagome_Surface_Tileable.png`
+- `Kagome_Surface_Z0.25_Frame.png`
+- `Kagome_Surface_Z0.5_Honeycomb.png`
+- `Kagome_Valency_Snap_Z0.25.png`
+- `Kagome_Valency_Snap_Z0.25_T015.png`
+- `No_Pull_Down_Z0.25.png`
+- `Organic_Carbon_Dual.png`
+- `Perfect_Carbon_Template.png`
+- `QuarterCell_Cage_Only.stl`
+- `run_output.txt`
+- `stl_steady_state_flow.png`
+- `surface_cage.stl`
+- `Surface_Cage_Z0.25.stl`
+- `Surface_Cage_Z0.50.stl`
+- `Surface_Cage_Z0.75.stl`
+- `Surface_Cage_Z1.00.stl`
+- `Surface_Dual_Z0.0.png`
+- `Surface_Dual_Z0.3.png`
+- `Surface_Dual_Z0.3_Snapped.png`
+- `Surface_Dual_Z0.55.png`
+- `Surface_Dual_Z0.875.png`
+- `Torture_Test_Surface_Router.png`
+- `Torture_Test_Universal_Skin.png`
+- `Unified_Surface_Dual_Router.png`
+- `Universal_Skin_Z0.25.png`
+- `WP_Evolution_Grid.png`
+- `WP_Quarter_Plane_Cross_Section.png`
+- `WP_Relaxed_12_5_5_5_5.png`
+- `WP_Slabs_0.125.png`
+- `WP_Slabs_0.25.png`
+- `WP_Surface_Dual_Z0.25.png`
+- `WP_Surface_Dual_Z0.5.png`
+- `WP_Surface_Dual_Z1.0.png`
+- `WP_Sweep.gif`
+- `WP_Sweep.vtu`
+- `WP_Volumetric_Slabs.png`
+- `xz_flow_slice.png`

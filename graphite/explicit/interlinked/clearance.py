@@ -92,6 +92,76 @@ def segment_segment_distance(
     return float(np.min(dist))
 
 
+def segment_segment_closest_points(
+    p1: np.ndarray,
+    p2: np.ndarray,
+    q1: np.ndarray,
+    q2: np.ndarray,
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """
+    Compute minimum Euclidean distance and corresponding closest 3D points
+    between two sets of 3D line segments.
+
+    Segment 1 endpoints: p1 -> p2 of shape (N, 3).
+    Segment 2 endpoints: q1 -> q2 of shape (M, 3).
+
+    Returns:
+        tuple: (min_dist, closest_point_on_p, closest_point_on_q)
+    """
+    p1 = np.asarray(p1, dtype=np.float64)
+    p2 = np.asarray(p2, dtype=np.float64)
+    q1 = np.asarray(q1, dtype=np.float64)
+    q2 = np.asarray(q2, dtype=np.float64)
+
+    if p1.ndim == 1:
+        p1 = p1[None, :]
+        p2 = p2[None, :]
+    if q1.ndim == 1:
+        q1 = q1[None, :]
+        q2 = q2[None, :]
+
+    P1 = p1[:, None, :]
+    P2 = p2[:, None, :]
+    Q1 = q1[None, :, :]
+    Q2 = q2[None, :, :]
+
+    u = P2 - P1  # (N, 1, 3)
+    v = Q2 - Q1  # (1, M, 3)
+    w0 = P1 - Q1  # (N, M, 3)
+
+    a = np.sum(u * u, axis=-1)
+    b = np.sum(u * v, axis=-1)
+    c = np.sum(v * v, axis=-1)
+    d = np.sum(u * w0, axis=-1)
+    e = np.sum(v * w0, axis=-1)
+
+    a = np.broadcast_to(a, b.shape)
+    c = np.broadcast_to(c, b.shape)
+
+    denom = a * c - b * b
+    eps = 1e-12
+
+    is_parallel = denom < eps
+    denom_safe = np.where(is_parallel, 1.0, denom)
+    s_unconstrained = (b * e - c * d) / denom_safe
+    s = np.where(is_parallel, 0.0, np.clip(s_unconstrained, 0.0, 1.0))
+
+    c_safe = np.where(c < eps, 1.0, c)
+    t = np.clip((b * s + e) / c_safe, 0.0, 1.0)
+    t = np.where(c < eps, 0.0, t)
+
+    a_safe = np.where(a < eps, 1.0, a)
+    s = np.clip((b * t - d) / a_safe, 0.0, 1.0)
+    s = np.where(a < eps, 0.0, s)
+
+    cp_p = P1 + s[:, :, None] * u
+    cp_q = Q1 + t[:, :, None] * v
+
+    dist = np.linalg.norm(cp_p - cp_q, axis=-1)
+    min_idx = np.unravel_index(np.argmin(dist), dist.shape)
+    return float(dist[min_idx]), cp_p[min_idx], cp_q[min_idx]
+
+
 def ring_to_ring_distance(ring1: Ring, ring2: Ring) -> float:
     """Compute minimum centerline distance between two rings in mm."""
     p1 = ring1.nodes[ring1.struts[:, 0]]
@@ -433,6 +503,157 @@ def particle_pair_clearance(
     return float(d - (r1 + r2))
 
 
+def particle_pair_closest_points(
+    p1: Any,
+    p2: Any,
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """
+    Compute minimum 3D Euclidean distance and closest points on p1 and p2.
+
+    Returns:
+        tuple: (min_distance, pt_on_p1, pt_on_p2)
+    """
+    nodes1, struts1, _, _ = _extract_particle_nodes_and_struts(p1)
+    nodes2, struts2, _, _ = _extract_particle_nodes_and_struts(p2)
+
+    if len(struts1) == 0 or len(struts2) == 0:
+        diff = nodes1[:, None, :] - nodes2[None, :, :]
+        dist = np.linalg.norm(diff, axis=-1)
+        min_idx = np.unravel_index(np.argmin(dist), dist.shape)
+        return float(dist[min_idx]), nodes1[min_idx[0]], nodes2[min_idx[1]]
+
+    p0 = nodes1[struts1[:, 0]]
+    p1_end = nodes1[struts1[:, 1]]
+    q0 = nodes2[struts2[:, 0]]
+    q1_end = nodes2[struts2[:, 1]]
+
+    return segment_segment_closest_points(p0, p1_end, q0, q1_end)
+
+
+def classify_particle_contact(
+    p1: Any,
+    p2: Any,
+    contact_point: np.ndarray | None = None,
+    strut_radius: float | tuple[float, float] = 0.5,
+    outer_fraction: float = 0.65,
+) -> str:
+    """
+    Classify an inter-particle contact into tensile vs. compressive contact manifolds
+    (Wang et al., Nature 2021).
+
+    Categorization:
+      - Tensile Contacts: Form near outer particle vertices away from the centroid,
+        providing tensile load paths under flexure.
+      - Compressive Contacts: Form within internal void volumes occupied by adjacent
+        particles near their centroids.
+
+    Args:
+        p1, p2: Particle instances (InterlinkedParticle, PAMParticle, or Ring).
+        contact_point: Optional precomputed 3D contact point (3,). If None, calculated
+            as the midpoint of the closest points between p1 and p2.
+        strut_radius: Strut radius (float or tuple).
+        outer_fraction: Normalized radial threshold (0 to 1) demarcating inner cavity
+            (compressive) from outer vertex envelope (tensile). Default 0.65.
+
+    Returns:
+        str: 'tensile' or 'compressive'.
+    """
+    _, _, c1, r_bound1 = _extract_particle_nodes_and_struts(p1)
+    _, _, c2, r_bound2 = _extract_particle_nodes_and_struts(p2)
+
+    if contact_point is None:
+        _, pt1, pt2 = particle_pair_closest_points(p1, p2)
+        pt_contact = 0.5 * (pt1 + pt2)
+    else:
+        pt_contact = np.asarray(contact_point, dtype=np.float64).reshape(3)
+
+    d1 = float(np.linalg.norm(pt_contact - c1))
+    d2 = float(np.linalg.norm(pt_contact - c2))
+
+    norm1 = d1 / max(r_bound1, 1e-12)
+    norm2 = d2 / max(r_bound2, 1e-12)
+
+    # Wang et al. (Nature 2021, Sec. B):
+    # Compressive contacts form within internal void volumes occupied by adjacent particles
+    # near their centroids (i.e. min(norm1, norm2) < outer_fraction).
+    # Tensile contacts form near outer particle vertices away from both centroids
+    # (i.e. min(norm1, norm2) >= outer_fraction), providing tensile load paths under flexure.
+    if min(norm1, norm2) < float(outer_fraction):
+        return "compressive"
+    return "tensile"
+
+
+def analyze_interparticle_contact_manifold(
+    p1: Any,
+    p2: Any,
+    strut_radius: float | tuple[float, float] = 0.5,
+    outer_fraction: float = 0.65,
+) -> dict[str, Any]:
+    """
+    Detailed contact manifold characterization between two interacting particles.
+    """
+    d_centerline, pt1, pt2 = particle_pair_closest_points(p1, p2)
+    if isinstance(strut_radius, (tuple, list)):
+        r1, r2 = float(strut_radius[0]), float(strut_radius[1])
+    else:
+        r1 = r2 = float(strut_radius)
+    clearance = float(d_centerline - (r1 + r2))
+    contact_pt = 0.5 * (pt1 + pt2)
+    contact_type = classify_particle_contact(
+        p1, p2, contact_point=contact_pt, outer_fraction=outer_fraction
+    )
+    _, _, c1, rb1 = _extract_particle_nodes_and_struts(p1)
+    _, _, c2, rb2 = _extract_particle_nodes_and_struts(p2)
+
+    return {
+        "contact_type": contact_type,
+        "contact_point": contact_pt.tolist(),
+        "clearance_mm": clearance,
+        "centerline_distance_mm": d_centerline,
+        "pt_on_p1": pt1.tolist(),
+        "pt_on_p2": pt2.tolist(),
+        "radial_dist_p1_norm": float(np.linalg.norm(contact_pt - c1) / max(rb1, 1e-12)),
+        "radial_dist_p2_norm": float(np.linalg.norm(contact_pt - c2) / max(rb2, 1e-12)),
+    }
+
+
+def compute_jammed_bending_modulus(
+    Z_avg: float,
+    grid_rotation_deg: float = 0.0,
+    a: float = 0.159,
+    b: float = 2.348,
+) -> float:
+    """
+    Apparent bending modulus for jammed interlocked structured fabrics (Wang et al., Nature 2021).
+    E* = a * (Z_avg - Z0)^b for Z_avg >= Z0, else 0.0.
+    Critical coordination threshold Z0 shifts from 4.89 (0°) to 5.29 (45°).
+    """
+    Z = float(Z_avg)
+    rot = float(grid_rotation_deg) % 90.0
+    theta = np.radians(rot)
+    z0 = 4.89 + (5.29 - 4.89) * (np.sin(2.0 * theta) ** 2)
+    if Z <= z0:
+        return 0.0
+    return float(a * ((Z - z0) ** b))
+
+
+def compute_jamming_compressive_modulus(
+    Z: float,
+    Z0: float = 5.0,
+    n: float = 1.0,
+    prefactor: float = 1.0,
+) -> float:
+    """
+    Apparent compressive modulus scaling for polycatenated materials (Zhou et al., Science 2025).
+    E* = prefactor * (Z - Z0)^n for Z >= Z0, else 0.0.
+    """
+    z_val = float(Z)
+    z0_val = float(Z0)
+    if z_val <= z0_val:
+        return 0.0
+    return float(prefactor * ((z_val - z0_val) ** n))
+
+
 def particle_linking_number(
     p1: Any,
     p2: Any,
@@ -530,6 +751,10 @@ def compute_pairwise_particle_clearances(
         if clr < global_min_clr:
             global_min_clr = clr
 
+        contact_type = classify_particle_contact(
+            particles[i], particles[j], strut_radius=(r_wire_i, r_wire_j)
+        )
+
         records.append({
             "particle_i": i,
             "particle_j": j,
@@ -540,6 +765,7 @@ def compute_pairwise_particle_clearances(
             "center_distance": dist_c,
             "centerline_distance": d_centerline,
             "clearance": clr,
+            "contact_type": contact_type,
         })
 
     return global_min_clr, records

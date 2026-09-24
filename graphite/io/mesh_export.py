@@ -1,5 +1,5 @@
 """
-Mesh export utilities — STL (trimesh) and faceted STEP (Gmsh mesh-to-CAD).
+Mesh export utilities — STL (trimesh), 3MF (trimesh), and faceted STEP (Gmsh mesh-to-CAD).
 
 STEP output builds a tessellated solid via Gmsh surface classification; it is
 not an analytic NURBS B-rep suitable for parametric feature editing.
@@ -19,7 +19,7 @@ import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Sequence
 
 import numpy as np
 import trimesh
@@ -86,24 +86,32 @@ def formats_from_request(export_format: str) -> tuple[str, ...]:
     """
     Parse UI/config export format strings.
 
-    Accepts: ``stl``, ``step``, ``both`` (case-insensitive), or labels like
-    ``STL only``, ``STEP only``, ``STL + STEP``.
+    Accepts: ``stl``, ``step``, ``3mf``, ``both`` (case-insensitive), comma-separated
+    combinations like ``stl,3mf``, or labels like ``STL only``, ``STEP only``, ``3MF only``.
     """
     key = str(export_format).strip().lower()
+    if "," in key:
+        parts = [p.strip() for p in key.split(",") if p.strip()]
+        res: list[str] = []
+        for p in parts:
+            res.extend(formats_from_request(p))
+        return tuple(dict.fromkeys(res))
     if key in ("stl", "stl only"):
         return ("stl",)
     if key in ("step", "step only", "stp"):
         return ("step",)
+    if key in ("3mf", "3mf only"):
+        return ("3mf",)
     if key in ("both", "stl + step", "stl+step", "stl and step"):
         return ("stl", "step")
     raise ValueError(
-        f"Unknown export_format {export_format!r}; use 'stl', 'step', or 'both'."
+        f"Unknown export_format {export_format!r}; use 'stl', 'step', '3mf', 'both', or comma-separated list."
     )
 
 
 def resolve_export_formats(
     output_path: str | Path | None,
-    export_formats: tuple[str, ...] | str | None = None,
+    export_formats: Sequence[str] | str | None = None,
 ) -> tuple[str, ...]:
     """Resolve export formats from explicit request and/or output path suffix."""
     if export_formats is not None:
@@ -111,7 +119,7 @@ def resolve_export_formats(
             return formats_from_request(export_formats)
         normalized = tuple(str(f).lower() for f in export_formats)
         for fmt in normalized:
-            if fmt not in ("stl", "step"):
+            if fmt not in ("stl", "step", "3mf"):
                 raise ValueError(f"Unsupported export format: {fmt!r}")
         return normalized
     if output_path is None:
@@ -119,12 +127,14 @@ def resolve_export_formats(
     suffix = Path(output_path).suffix.lower()
     if suffix in (".step", ".stp"):
         return ("step",)
+    if suffix == ".3mf":
+        return ("3mf",)
     return ("stl",)
 
 
 def _output_stem(path: Path) -> str:
     suffix = path.suffix.lower()
-    if suffix in (".stl", ".step", ".stp"):
+    if suffix in (".stl", ".step", ".stp", ".3mf"):
         return path.stem
     return path.name
 
@@ -523,7 +533,7 @@ def export_mesh(
     mesh: trimesh.Trimesh,
     path: str | Path,
     *,
-    formats: tuple[str, ...] | str | None = None,
+    formats: Sequence[str] | str | None = None,
     step_options: StepExportOptions | None = None,
     repair_config: MeshRepairConfig | None = None,
 ) -> ExportResult:
@@ -535,12 +545,12 @@ def export_mesh(
     mesh : trimesh.Trimesh
         Lattice or boundary mesh to write.
     path : path-like
-        Base output path. Extension may be ``.stl``, ``.step``, or ``.stp``; when
+        Base output path. Extension may be ``.stl``, ``.3mf``, ``.step``, or ``.stp``; when
         multiple formats are requested, the stem is used and per-format extensions
         are appended.
-    formats : tuple of str or str, optional
-        ``("stl",)``, ``("step",)``, ``("stl", "step")``, or a request string
-        (``stl`` / ``step`` / ``both``). If None, inferred from ``path`` suffix.
+    formats : sequence of str or str, optional
+        ``("stl",)``, ``("step",)``, ``("3mf",)``, ``("stl", "3mf")``, ``("stl", "step")``,
+        or a request string (``stl`` / ``step`` / ``3mf`` / ``both``). If None, inferred from ``path`` suffix.
     step_options : StepExportOptions, optional
         Gmsh conversion settings when STEP is requested.
     repair_config : MeshRepairConfig, optional
@@ -634,6 +644,11 @@ def export_mesh(
         stl_path = parent / f"{stem}.stl"
         work_mesh.export(str(stl_path))
         paths_written.append(stl_path)
+
+    if "3mf" in resolved:
+        threemf_path = parent / f"{stem}.3mf"
+        work_mesh.export(str(threemf_path), file_type="3mf")
+        paths_written.append(threemf_path)
 
     if "step" in resolved:
         step_path = parent / f"{stem}.step"

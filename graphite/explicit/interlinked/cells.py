@@ -121,8 +121,8 @@ class D4TetCell:
     ]
 
     # Validated empirical clearance factor when unit_cell_pitch is conventional cell size a_conv:
-    # Delta = kappa * a_conv - D_strut, with kappa ≈ 0.2350
-    CLEARANCE_KAPPA: float = 0.2350
+    # Delta = kappa * a_conv - D_strut, with kappa ≈ 0.1018 (full diamond crystal FCC+basis)
+    CLEARANCE_KAPPA: float = 0.1018
     # Ratio of tet edge length to diamond bond length d: L / d ≈ 1.393
     # With d = a_conv * sqrt(3)/4 ≈ 0.4330 * a_conv, L ≈ 0.603 * a_conv
     DEFAULT_EDGE_RATIO: float = 0.603
@@ -179,11 +179,40 @@ class D4TetCell:
         id_start: int = 0,
         context: dict[str, Any] | None = None,
     ) -> list[InterlinkedParticle]:
-        """Instantiate both A and B sublattices at a diamond cell site."""
+        """
+        Instantiate diamond cell site.
+        If context specifies 'sublattice' ('A' or 'B'), instantiate only that single
+        crystallographic particle at site_origin. Otherwise (for local 2-particle cell),
+        instantiate both basis particles (A and B).
+        """
         ctx = context or {}
         a_conv = float(cell_pitch)
         L = a_conv * self.edge_ratio
         orig = np.asarray(site_origin, dtype=np.float64).reshape(3)
+
+        if "sublattice" in ctx:
+            sub = str(ctx["sublattice"]).upper()
+            is_dual = (sub == "B")
+            geom = _build_tet_geometry(edge_length=L, dual=is_dual)
+            R = _default_identity_orientation(grid_index, orig, ctx)
+            T = np.eye(4, dtype=np.float64)
+            T[:3, :3] = R
+            T[:3, 3] = orig
+
+            p = InterlinkedParticle(
+                particle_id=int(id_start),
+                geometry=geom,
+                transform=T,
+                sublattice_id=sub,
+                cell_index=tuple(grid_index),
+                metadata={
+                    "cell_name": self.name,
+                    "edge_length": L,
+                    "conventional_cell_size": a_conv,
+                    "sublattice": sub,
+                },
+            )
+            return [p]
 
         particles = []
         for i, bp in enumerate(self.basis_particles):
@@ -288,16 +317,39 @@ class J4OctCell:
         site_center: np.ndarray,
         context: dict[str, Any],
     ) -> np.ndarray:
-        """Apply alternating 45-deg twist about Z for parity (i + j) mod 2."""
+        """
+        Apply 45-deg relative twist about the catenation bond axis.
+        For square-planar grid (i, j):
+        - Even parity ((i + j) % 2 == 0): unrotated identity orientation.
+        - Odd parity along X (i % 2 != 0, j % 2 == 0): 45-deg twist about X.
+        - Odd parity along Y (i % 2 == 0, j % 2 != 0): 45-deg twist about Y.
+        - Diagonal odd parity: 45-deg twist about Z.
+        """
         i, j, _ = grid_index
         parity = (i + j) % 2
-        angle = 0.25 * np.pi if parity == 1 else 0.0
+        if parity == 0:
+            return np.eye(3, dtype=np.float64)
+
+        angle = 0.25 * np.pi
         c, s = np.cos(angle), np.sin(angle)
-        return np.array([
-            [c, -s, 0.0],
-            [s,  c, 0.0],
-            [0.0, 0.0, 1.0],
-        ], dtype=np.float64)
+        if i % 2 != 0 and j % 2 == 0:
+            return np.array([
+                [1.0, 0.0, 0.0],
+                [0.0, c, -s],
+                [0.0, s,  c],
+            ], dtype=np.float64)
+        elif i % 2 == 0 and j % 2 != 0:
+            return np.array([
+                [c,  0.0, s],
+                [0.0, 1.0, 0.0],
+                [-s, 0.0, c],
+            ], dtype=np.float64)
+        else:
+            return np.array([
+                [c, -s, 0.0],
+                [s,  c, 0.0],
+                [0.0, 0.0, 1.0],
+            ], dtype=np.float64)
 
     def forward_clearance(
         self,

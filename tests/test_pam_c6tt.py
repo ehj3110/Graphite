@@ -93,3 +93,83 @@ class TestC6TTBulkLattice:
         best_a0 = recalibrate_pam_lattice("C-6-TT", target_d=10.0, r=0.50, repeats=(2, 2, 2))
         assert best_a0 > 10.0
         assert 11.5 <= best_a0 <= 14.0
+
+    def test_generate_c6tt_lattice_alias(self):
+        from graphite.explicit.interlinked import generate_c6tt_lattice
+        res = generate_c6tt_lattice(repeats=(1, 1, 1), size=10.0, strut_radius=0.50, build_meshes=False)
+        assert res.tripartite_code == "C-6-TT"
+        assert len(res.particles) == 1
+
+
+class TestContactMechanicsAndJamming:
+    def test_classify_particle_contact(self):
+        from graphite.explicit.interlinked import (
+            generate_truncated_tetrahedron_particle,
+            classify_particle_contact,
+            analyze_interparticle_contact_manifold,
+        )
+        p1 = generate_truncated_tetrahedron_particle(size=10.0, center=(0.0, 0.0, 0.0), particle_id=0)
+        p2 = generate_truncated_tetrahedron_particle(size=10.0, center=(12.5, 0.0, 0.0), particle_id=1)
+
+        # Outer vertex contact (near edge of p1 and p2) -> tensile
+        pt_tensile = np.array([6.25, 3.0, 3.0], dtype=np.float64)
+        c_type = classify_particle_contact(p1, p2, contact_point=pt_tensile, outer_fraction=0.60)
+        assert c_type == "tensile"
+
+        # Inner cavity contact (near center of particle) -> compressive
+        pt_comp = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        c_type_comp = classify_particle_contact(p1, p2, contact_point=pt_comp, outer_fraction=0.60)
+        assert c_type_comp == "compressive"
+
+        # Detailed analysis
+        analysis = analyze_interparticle_contact_manifold(p1, p2, strut_radius=0.50)
+        assert "contact_type" in analysis
+        assert "clearance_mm" in analysis
+        assert "contact_point" in analysis
+        assert analysis["contact_type"] in ("tensile", "compressive")
+
+    def test_jamming_power_laws(self):
+        from graphite.explicit.interlinked import (
+            compute_jammed_bending_modulus,
+            compute_jamming_compressive_modulus,
+        )
+        import json
+
+        # Unjammed state: Z < Z0
+        assert compute_jammed_bending_modulus(Z_avg=4.0, grid_rotation_deg=0.0) == 0.0
+        assert compute_jammed_bending_modulus(Z_avg=5.0, grid_rotation_deg=45.0) == 0.0  # Z0 is 5.29
+
+        # Jammed state: Z >= Z0
+        E_bend_0 = compute_jammed_bending_modulus(Z_avg=6.0, grid_rotation_deg=0.0)
+        assert E_bend_0 > 0.0
+        # Formula: 0.159 * (6.0 - 4.89)^2.348 ≈ 0.159 * 1.11^2.348 ≈ 0.203
+        assert np.isclose(E_bend_0, 0.159 * ((6.0 - 4.89) ** 2.348), atol=1e-3)
+
+        # 45-degree rotation increases threshold Z0 to 5.29, lowering modulus for same Z
+        E_bend_45 = compute_jammed_bending_modulus(Z_avg=6.0, grid_rotation_deg=45.0)
+        assert 0.0 < E_bend_45 < E_bend_0
+
+        # Zhou et al. compressive jamming: E* = prefactor * (Z - Z0)^n
+        assert compute_jamming_compressive_modulus(Z=4.5, Z0=5.0) == 0.0
+        E_comp = compute_jamming_compressive_modulus(Z=7.0, Z0=5.0, n=1.0, prefactor=2.5)
+        assert np.isclose(E_comp, 5.0)
+
+        # Export reviewable contact & jamming report
+        out_report = ROOT / "outputs" / "phase1_c6tt_contact_analysis.json"
+        report_data = {
+            "tripartite_code": "C-6-TT",
+            "wang_nature_2021": {
+                "Z_critical_0deg": 4.89,
+                "Z_critical_45deg": 5.29,
+                "E_bend_at_Z6_0deg_MPa": float(E_bend_0),
+                "E_bend_at_Z6_45deg_MPa": float(E_bend_45),
+            },
+            "zhou_science_2025": {
+                "Z0": 5.0,
+                "n": 1.0,
+                "E_comp_at_Z7": float(E_comp),
+            },
+        }
+        with open(out_report, "w", encoding="utf-8") as f:
+            json.dump(report_data, f, indent=2)
+        assert out_report.is_file()

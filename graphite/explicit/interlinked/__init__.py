@@ -23,6 +23,11 @@ from .clearance import (
     circle_circle_distance,
     particle_pair_centerline_distance,
     particle_pair_clearance,
+    particle_pair_closest_points,
+    classify_particle_contact,
+    analyze_interparticle_contact_manifold,
+    compute_jammed_bending_modulus,
+    compute_jamming_compressive_modulus,
     compute_pairwise_particle_clearances,
     check_particle_clearance,
     particle_linking_number,
@@ -71,6 +76,7 @@ from .pams import (
     generate_c6co_coordination_cell,
     generate_c6co_interlocked_pair,
     generate_c6tt_cubic_tiling,
+    generate_c6tt_lattice,
     generate_j4oct_interlocked_pair,
     generate_j4oct_square_tiling,
     generate_pam_lattice,
@@ -100,6 +106,12 @@ from .writer_3mf import (
     solidify_particle_prototype,
     format_3mf_transform,
     export_interlinked_3mf,
+)
+from .support_recipes import (
+    get_available_support_recipes,
+    export_seed_cell_stl,
+    apply_support_recipe,
+    create_custom_supported_particle,
 )
 
 __all__ = [
@@ -136,6 +148,7 @@ __all__ = [
     "generate_c6co_coordination_cell",
     "generate_c6co_cubic_tiling",
     "generate_c6tt_cubic_tiling",
+    "generate_c6tt_lattice",
     "generate_j4oct_interlocked_pair",
     "generate_j4oct_square_tiling",
     "generate_pam_lattice",
@@ -170,6 +183,11 @@ __all__ = [
     "fuse_perimeter_frame",
     "circle_circle_distance",
     "particle_pair_centerline_distance",
+    "particle_pair_closest_points",
+    "classify_particle_contact",
+    "analyze_interparticle_contact_manifold",
+    "compute_jammed_bending_modulus",
+    "compute_jamming_compressive_modulus",
     "compute_pairwise_particle_clearances",
     "check_particle_clearance",
     "particle_linking_number",
@@ -178,4 +196,8 @@ __all__ = [
     "solidify_particle_prototype",
     "format_3mf_transform",
     "export_interlinked_3mf",
+    "get_available_support_recipes",
+    "export_seed_cell_stl",
+    "apply_support_recipe",
+    "create_custom_supported_particle",
 ]

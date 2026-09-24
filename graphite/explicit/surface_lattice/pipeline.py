@@ -17,6 +17,7 @@ import manifold3d as m3d
 
 from graphite.explicit.surface_lattice.unit_cells import (
     tessellate_chiral_domain,
+    tessellate_reentrant_domain,
 )
 from graphite.explicit.surface_lattice.face_operators import (
     apply_surface_pattern_to_mesh,
@@ -56,17 +57,21 @@ def generate_surface_lattice(
     surface_mesh: trimesh.Trimesh | None = None,
     sphere_center: Sequence[float] | None = None,
     trim_radius: float | None = None,
-) -> trimesh.Trimesh:
+    export_stl: bool = False,
+    output_path: str | Path | None = None,
+    **kwargs: Any,
+) -> trimesh.Trimesh | Path:
     """
     Unified generator for 2D planar and surface-conformal lattices.
 
     Parameters
     ----------
     surface : str
-        "plate" (flat Z-extrusion), "cylinder" (radial prism wrapping), or "mesh" (surface-normal sweep).
+        "plate" (flat Z-extrusion), "cylinder" / "tube" (radial prism wrapping), or "mesh" (surface-normal sweep).
     pattern : str
         Topology pattern name:
         - Chiral: "tetra_chiral", "tri_chiral", "anti_tetra_chiral", "anti_tri_chiral"
+        - Reentrant: "reentrant"
         - Regular: "rhombic" (surface dual), "kelvin", "tesseract", "icosahedral", "tetrahedral", "grid"
     width : float, optional
         Plate width in mm (for surface="plate"). Default 50.0.
@@ -98,13 +103,18 @@ def generate_surface_lattice(
         Center coordinate for spherical cages.
     trim_radius : float, optional
         Inset trimming radius for flushing surface joints.
+    export_stl : bool, optional
+        If True, exports generated mesh to output_path.
+    output_path : str or Path, optional
+        Destination STL filepath when export_stl is True.
 
     Returns
     -------
-    trimesh.Trimesh
-        Watertight 3D solid mesh.
+    trimesh.Trimesh | Path
+        Watertight 3D solid mesh, or Path if export_stl=True.
     """
     surface_key = surface.lower().strip()
+    pat_lower = pattern.lower().strip()
 
     # =========================================================================
     # 1. FLAT PLATE MODE (Bookmarks, Coasters, Panels)
@@ -115,7 +125,14 @@ def generate_surface_lattice(
         th = thickness if thickness is not None else 3.0
 
         # Generate 2D segments
-        if "chiral" in pattern.lower():
+        if pat_lower in ("reentrant", "re_entrant"):
+            segs_2d, _ = tessellate_reentrant_domain(
+                domain_width=w,
+                domain_height=h,
+                n_circumferential=n_circumferential,
+                periodic_x=False,
+            )
+        elif "chiral" in pat_lower:
             segs_2d, _ = tessellate_chiral_domain(
                 topology=pattern,
                 domain_width=w,
@@ -128,23 +145,23 @@ def generate_surface_lattice(
         else:
             # Fallback to tri_sq coaster generators for regular patterns
             from scripts.coasters.tri_sq_patterns import (
-                generate_tri_coaster_segments,
-                generate_sq_coaster_segments,
+                get_triangle_segments,
+                get_square_segments,
                 unique_segments,
             )
             p_cap = pattern.capitalize()
             if p_cap in ("Grid", "Icosahedral", "Kelvin", "Tesseract"):
-                raw_segs = generate_sq_coaster_segments(p_cap, w / n_circumferential, 0.0, 0.0, w, h)
+                raw_segs = get_square_segments(p_cap, side=w / n_circumferential)
             else:
-                raw_segs = generate_tri_coaster_segments(p_cap, (w / n_circumferential) / np.sqrt(3), 0.0, 0.0, w, h)
+                raw_segs = get_triangle_segments(p_cap, side=(w / n_circumferential) / np.sqrt(3))
             segs_2d = unique_segments(raw_segs)
 
-        return sweep_planar_2d(segs_2d, thickness=th, strut_w=strut_w)
+        mesh = sweep_planar_2d(segs_2d, thickness=th, strut_w=strut_w)
 
     # =========================================================================
     # 2. CYLINDRICAL MODE (Napkin Rings, Sleeves, Stents)
     # =========================================================================
-    elif surface_key in ("cylinder", "cylindrical", "sleeve", "ring"):
+    elif surface_key in ("cylinder", "cylindrical", "sleeve", "ring", "tube"):
         # Auto-detect parameters from CAD fixture if provided (Method B)
         if cad_fixture is not None:
             fix_info = inspect_cylinder_fixture(cad_fixture)
@@ -162,16 +179,25 @@ def generate_surface_lattice(
         c_mid = 2.0 * np.pi * r_mid
 
         # Generate periodic 2D segments
-        segs_2d, _ = tessellate_chiral_domain(
-            topology=pattern,
-            domain_width=c_mid,
-            domain_height=h_lat,
-            n_circumferential=n_circumferential,
-            r_node=r_node,
-            n_circle_segs=n_circle_segs,
-            periodic_x=True,
-            y_base=y_b,
-        )
+        if pat_lower in ("reentrant", "re_entrant"):
+            segs_2d, _ = tessellate_reentrant_domain(
+                domain_width=c_mid,
+                domain_height=h_lat,
+                n_circumferential=n_circumferential,
+                periodic_x=True,
+                y_base=y_b,
+            )
+        else:
+            segs_2d, _ = tessellate_chiral_domain(
+                topology=pattern,
+                domain_width=c_mid,
+                domain_height=h_lat,
+                n_circumferential=n_circumferential,
+                r_node=r_node,
+                n_circle_segs=n_circle_segs,
+                periodic_x=True,
+                y_base=y_b,
+            )
 
         center_vec = np.array([center_xy, y_b + h_lat / 2.0, center_xy], dtype=np.float64)
 
@@ -188,15 +214,15 @@ def generate_surface_lattice(
 
         # If CAD fixture provided, fuse solid collar rims
         if cad_fixture is not None:
-            return carve_and_fuse_collar_rims(
+            mesh = carve_and_fuse_collar_rims(
                 cad_fixture=cad_fixture,
                 lattice_manifold=lattice_manifold,
                 h_lattice=h_lat,
                 y_start=y_b,
                 center_xy=center_xy,
             )
-
-        return _manifold_to_trimesh(lattice_manifold)
+        else:
+            mesh = _manifold_to_trimesh(lattice_manifold)
 
     # =========================================================================
     # 3. SURFACE MESH MODE (Spheres, Baseballs, General Surface Duals)
@@ -218,7 +244,7 @@ def generate_surface_lattice(
             pattern=pattern,
         )
 
-        return sweep_surface_skin(
+        mesh = sweep_surface_skin(
             mesh=surface_mesh,
             nodes=nodes_3d,
             struts=struts_3d,
@@ -232,3 +258,11 @@ def generate_surface_lattice(
         raise ValueError(
             f"Unknown surface '{surface}'. Supported options: 'plate', 'cylinder', 'mesh'."
         )
+
+    if export_stl:
+        out_dest = Path(output_path) if output_path else Path("outputs/surface_lattice.stl")
+        out_dest.parent.mkdir(parents=True, exist_ok=True)
+        mesh.export(str(out_dest))
+        return out_dest
+
+    return mesh

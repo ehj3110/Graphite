@@ -45,25 +45,78 @@ def generate_conformal_scaffold(*args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# SC Hexahedral (Octahedral dual) - new engine in conformal_generator.py
+# SC Hexahedral (Nodal Conformation + Planar Slicing Surface Dual)
 # ---------------------------------------------------------------------------
 
 def generate_conformal_lattice(*args, **kwargs):
     """Unified GMSH-free conformal lattice generator.
 
     lattice_type='A15' -> routes to A15 Kagome
-    lattice_type='SC'  -> modular SC hex conformal (``rule_name``, default octahedral)
+    lattice_type='SC'  -> canonical SC Nodal Conformation + Planar Slicing Surface Dual (default)
+                          pass legacy=True to access archived conformal_generator morph
     """
-    lt = kwargs.get("lattice_type", "A15")
+    lt = kwargs.get("lattice_type", "SC")
+    legacy = kwargs.pop("legacy", False)
+    if legacy and lt == "SC":
+        from .conformal_generator import generate_conformal_lattice as _legacy_impl
+        return _legacy_impl(*args, **kwargs)
+
     if lt == "A15":
         from .a15_conformal import generate_a15_conformal_lattice as _impl
         kwargs.pop("lattice_type", None)
         return _impl(*args, **kwargs)
     elif lt == "SC":
-        from .conformal_generator import generate_conformal_lattice as _impl
+        from .nodal_conformation import generate_sc_conformal_lattice as _impl
         return _impl(*args, **kwargs)
     else:
         raise ValueError(f"Unknown lattice type: '{lt}'. Supported: 'A15', 'SC'")
+
+
+def generate_sc_conformal_lattice(*args, **kwargs):
+    """Canonical SC Nodal Conformation + Planar Slicing Surface Dual generator."""
+    from .nodal_conformation import generate_sc_conformal_lattice as _impl
+    return _impl(*args, **kwargs)
+
+
+def generate_legacy_conformal_lattice(*args, **kwargs):
+    """Archived legacy hex-cage morph generator (conformal_generator.py)."""
+    from .conformal_generator import generate_conformal_lattice as _impl
+    return _impl(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# SC Nodal Conformation (Cartesian SC + Node-Plane Trim + Universal Dual)
+# ---------------------------------------------------------------------------
+
+def generate_nodal_conformation(*args, **kwargs):
+    """SC Nodal Conformation generator (node-plane trim + universal surface dual)."""
+    from .nodal_conformation import generate_nodal_conformation as _impl
+    return _impl(*args, **kwargs)
+
+
+def deform_outside_nodes(*args, **kwargs):
+    """Snap outside volume nodes to closest points on CAD boundary."""
+    from .nodal_conformation import deform_outside_nodes as _impl
+    return _impl(*args, **kwargs)
+
+
+def weld_combined_lattice(*args, **kwargs):
+    """Weld conformed volume lattice and surface dual into unified graph."""
+    from .nodal_conformation import weld_combined_lattice as _impl
+    return _impl(*args, **kwargs)
+
+
+def build_planar_slicing_surface_dual(*args, **kwargs):
+    """Planar Slicing Contour Sweep surface dual builder."""
+    from .planar_surface_sweep import build_planar_slicing_surface_dual as _impl
+    return _impl(*args, **kwargs)
+
+
+def PlanarSweepConfig(*args, **kwargs):
+    """Configuration dataclass for the Planar Slicing Contour Sweep."""
+    from .planar_surface_sweep import PlanarSweepConfig as _impl
+    return _impl(*args, **kwargs)
+
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +155,7 @@ def repair_cad_mesh(*args, **kwargs):
 
 from .geometry_module import (
     affine_rows_from_R_t,
+    build_clean_miter_truss,
     manifold_cylinder_between,
     manifold_to_trimesh,
     rotation_align_local_z_to_unit,
@@ -162,6 +216,14 @@ __all__ = [
     "generate_conformal_scaffold",
     # Unified wrapper
     "generate_conformal_lattice",
+    "generate_sc_conformal_lattice",
+    "generate_legacy_conformal_lattice",
+    # SC Nodal Conformation & Universal Dual
+    "generate_nodal_conformation",
+    "deform_outside_nodes",
+    "weld_combined_lattice",
+    "build_planar_slicing_surface_dual",
+    "PlanarSweepConfig",
     # Lofted explicit hex
     "generate_lofted_hex_scaffold",
     "synthesize_lofted_lattice",
@@ -182,6 +244,7 @@ __all__ = [
     "solve_sizing",
     "repair_cad_mesh",
     # Manifold3D Geometry Primitives & Helpers
+    "build_clean_miter_truss",
     "manifold_cylinder_between",
     "rotation_align_local_z_to_unit",
     "affine_rows_from_R_t",

@@ -416,7 +416,7 @@ def optimize_lattice_fraction(
     except Exception:
         grid_type = "A15"
 
-    from graphite.explicit.conformal_generator import generate_conformal_lattice
+    from graphite.explicit import generate_conformal_lattice
 
     boundary_for_scaffold = mesh
     use_smart_inset = False

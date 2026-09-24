@@ -1,0 +1,24 @@
+# Tasks: Conformal Meshing Refactoring & Recipes
+
+- `[x]` Phase 1 — Add `overlap_factor` to `TopologyRule`
+  - `[x]` Add `overlap_factor` parameter to `TopologyRule` class in `rules/tet_topology_rules.py`
+  - `[x]` Update `solver.py` to lookup overlap factors dynamically from the rule registries instead of using hardcoded constants
+- `[x]` Phase 2 — Unify Hex Rule Registration
+  - `[x]` Refactor `hex_topology_module.py` to register rules using `HexTopologyRule`
+  - `[x]` Expose backwards-compatible `_HEX_RULES` dictionary alias for legacy tests
+  - `[x]` Fix imports in legacy GMSH-based `hex_scaffold_module.py` and relax assertions in `test_hex_surface_dual.py` for robust test execution
+- `[x]` Phase 3 — Centralize Background Grid Generation
+  - `[x]` Add `generate_background_grid` to `proven_topologies.py` to handle both A15 and SC grid creation
+  - `[x]` Refactor `a15_conformal.py` grid generation block to call `generate_background_grid`
+  - `[x]` Refactor `conformal_generator.py` grid generation block to call `generate_background_grid`
+- `[x]` Phase 4 — Unified Conformal / Boolean Pipeline and Pre-loaded Mesh Support
+  - `[x]` Refactor `conformal_generator.py` and `a15_conformal.py` to accept pre-loaded `trimesh.Trimesh` mesh objects (bypassing redundant repair operations)
+  - `[x]` Add `mode: str = "conformal"` parameter to support both conformed (`"conformal"`) and raw-intersect (`"boolean"`) explicit lattices
+  - `[x]` Update CLI script `generate_lattice.py` to load/repair mesh once and pass it to explicit generation, mapping mode and lattice parameters
+- `[x]` Phase 5 — GMSH-free Solid Fraction Optimization
+  - `[x]` Remove `algorithm_3d` parameter from `optimize_lattice_fraction` in `solver.py`
+  - `[x]` Update `optimize_lattice_fraction` to route background grid and topology generation through the new, GMSH-free conformal pipeline (`generate_conformal_lattice`)
+- `[x]` Phase 6 — Cleanup and Exports
+  - `[x]` Remove `generate_conformed_hex_scaffold` and GMSH scaffolding modules from `graphite/explicit/__init__.py`, keeping only GMSH-free, clean public exports
+- `[x]` Phase 7 — Torture Testing
+  - `[x]` Run `run_adapter_torture_test.py` on `Part2_Adapter.STL` for 5 permutations and verify outputs

@@ -1,0 +1,233 @@
+{
+  "version": 3,
+  "method": "calibrate_period_for_pore_at_sf",
+  "note": "Each knot is a uniform unit-cell solve: tau from |F| quantile at SF=25%, solve L for target MIS pore. Graded balls interpolate L(r) at constant SF.",
+  "targets": {
+    "center": {
+      "pore_mm": 25.4,
+      "solid_fraction": 0.25
+    },
+    "skin": {
+      "pore_mm": 6.35,
+      "solid_fraction": 0.25
+    }
+  },
+  "lattices": {
+    "gyroid": {
+      "center": {
+        "lattice_type": "gyroid",
+        "target_pore_mm": 25.4,
+        "target_solid_fraction": 0.25,
+        "L_mm": 64.50044465564531,
+        "tau": 0.38643203819867245,
+        "measured_pore_mm": 24.44227376424454,
+        "measured_solid_fraction": 0.24813277633101852,
+        "converged": true,
+        "residual_pore_mm": -0.9577262357554588,
+        "residual_solid_fraction": -0.0018672236689814825,
+        "hit_bounds": false,
+        "iterations": 2,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.3864; solve L only."
+        ]
+      },
+      "skin": {
+        "lattice_type": "gyroid",
+        "target_pore_mm": 6.35,
+        "target_solid_fraction": 0.25,
+        "L_mm": 16.125111163911328,
+        "tau": 0.38643203819867245,
+        "measured_pore_mm": 6.110568441061135,
+        "measured_solid_fraction": 0.24813277633101852,
+        "converged": true,
+        "residual_pore_mm": -0.2394315589388647,
+        "residual_solid_fraction": -0.0018672236689814825,
+        "hit_bounds": false,
+        "iterations": 2,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.3864; solve L only."
+        ]
+      }
+    },
+    "diamond": {
+      "center": {
+        "lattice_type": "diamond",
+        "target_pore_mm": 25.4,
+        "target_solid_fraction": 0.25,
+        "L_mm": 66.16541446305001,
+        "tau": 0.30451188984909827,
+        "measured_pore_mm": 25.073209691261056,
+        "measured_solid_fraction": 0.24832718460648148,
+        "converged": true,
+        "residual_pore_mm": -0.32679030873894277,
+        "residual_solid_fraction": -0.0016728153935185175,
+        "hit_bounds": false,
+        "iterations": 2,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.3045; solve L only."
+        ]
+      },
+      "skin": {
+        "lattice_type": "diamond",
+        "target_pore_mm": 6.35,
+        "target_solid_fraction": 0.25,
+        "L_mm": 16.541353615762503,
+        "tau": 0.30451188984909827,
+        "measured_pore_mm": 6.268302422815264,
+        "measured_solid_fraction": 0.24832718460648148,
+        "converged": true,
+        "residual_pore_mm": -0.08169757718473569,
+        "residual_solid_fraction": -0.0016728153935185175,
+        "hit_bounds": false,
+        "iterations": 2,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.3045; solve L only."
+        ]
+      }
+    },
+    "schwarz-diamond": {
+      "center": {
+        "lattice_type": "schwarz-diamond",
+        "target_pore_mm": 25.4,
+        "target_solid_fraction": 0.25,
+        "L_mm": 63.832998157744946,
+        "tau": 0.21532242226422832,
+        "measured_pore_mm": 24.924752519520286,
+        "measured_solid_fraction": 0.2527262369791667,
+        "converged": true,
+        "residual_pore_mm": -0.47524748047971244,
+        "residual_solid_fraction": 0.002726236979166685,
+        "hit_bounds": false,
+        "iterations": 3,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.2153; solve L only."
+        ]
+      },
+      "skin": {
+        "lattice_type": "schwarz-diamond",
+        "target_pore_mm": 6.35,
+        "target_solid_fraction": 0.25,
+        "L_mm": 15.958249539436236,
+        "tau": 0.21532242226422832,
+        "measured_pore_mm": 6.2311881298800715,
+        "measured_solid_fraction": 0.2527262369791667,
+        "converged": true,
+        "residual_pore_mm": -0.11881187011992811,
+        "residual_solid_fraction": 0.002726236979166685,
+        "hit_bounds": false,
+        "iterations": 3,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.2153; solve L only."
+        ]
+      }
+    },
+    "schwarz-p": {
+      "center": {
+        "lattice_type": "schwarz-p",
+        "target_pore_mm": 25.4,
+        "target_solid_fraction": 0.25,
+        "L_mm": 32.435185503857994,
+        "tau": 0.4400773094800276,
+        "measured_pore_mm": 25.883941126240508,
+        "measured_solid_fraction": 0.2475054689718333,
+        "converged": true,
+        "residual_pore_mm": 0.48394112624050933,
+        "residual_solid_fraction": -0.0024945310281667132,
+        "hit_bounds": false,
+        "iterations": 4,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.4401; solve L only."
+        ]
+      },
+      "skin": {
+        "lattice_type": "schwarz-p",
+        "target_pore_mm": 6.35,
+        "target_solid_fraction": 0.25,
+        "L_mm": 8.108796375964499,
+        "tau": 0.4400773094800276,
+        "measured_pore_mm": 6.470985281560127,
+        "measured_solid_fraction": 0.2475054689718333,
+        "converged": true,
+        "residual_pore_mm": 0.12098528156012733,
+        "residual_solid_fraction": -0.0024945310281667132,
+        "hit_bounds": false,
+        "iterations": 4,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.4401; solve L only."
+        ]
+      }
+    },
+    "neovius": {
+      "center": {
+        "lattice_type": "neovius",
+        "target_pore_mm": 25.4,
+        "target_solid_fraction": 0.25,
+        "L_mm": 31.592429576408776,
+        "tau": 0.5705138868347772,
+        "measured_pore_mm": 25.27394366112702,
+        "measured_solid_fraction": 0.2568320696445958,
+        "converged": true,
+        "residual_pore_mm": -0.12605633887297785,
+        "residual_solid_fraction": 0.006832069644595817,
+        "hit_bounds": false,
+        "iterations": 4,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.5705; solve L only."
+        ]
+      },
+      "skin": {
+        "lattice_type": "neovius",
+        "target_pore_mm": 6.35,
+        "target_solid_fraction": 0.25,
+        "L_mm": 7.898107394102194,
+        "tau": 0.5705138868347772,
+        "measured_pore_mm": 6.318485915281755,
+        "measured_solid_fraction": 0.2568320696445958,
+        "converged": true,
+        "residual_pore_mm": -0.03151408471824446,
+        "residual_solid_fraction": 0.006832069644595817,
+        "hit_bounds": false,
+        "iterations": 4,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.5705; solve L only."
+        ]
+      }
+    },
+    "split-p": {
+      "center": {
+        "lattice_type": "split-p",
+        "target_pore_mm": 25.4,
+        "target_solid_fraction": 0.25,
+        "L_mm": 86.53841993532163,
+        "tau": 0.3428928594106605,
+        "measured_pore_mm": 25.244453075319317,
+        "measured_solid_fraction": 0.24883581090856483,
+        "converged": true,
+        "residual_pore_mm": -0.15554692468068154,
+        "residual_solid_fraction": -0.001164189091435175,
+        "hit_bounds": false,
+        "iterations": 2,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.3429; solve L only."
+        ]
+      },
+      "skin": {
+        "lattice_type": "split-p",
+        "target_pore_mm": 6.35,
+        "target_solid_fraction": 0.25,
+        "L_mm": 21.634604983830407,
+        "tau": 0.3428928594106605,
+        "measured_pore_mm": 6.311113268829829,
+        "measured_solid_fraction": 0.24883581090856483,
+        "converged": true,
+        "residual_pore_mm": -0.038886731170170385,
+        "residual_solid_fraction": -0.001164189091435175,
+        "hit_bounds": false,
+        "iterations": 2,
+        "notes": [
+          "Fixed SF=0.25 via |F| quantile tau=0.3429; solve L only."
+        ]
+      }
+    }
+  }
+}

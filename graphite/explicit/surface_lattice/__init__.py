@@ -14,6 +14,7 @@ from graphite.explicit.surface_lattice.unit_cells import (
     generate_tetrachiral_cell,
     generate_trichiral_cell,
     tessellate_chiral_domain,
+    tessellate_reentrant_domain,
     dedupe_2d_segments,
 )
 from graphite.explicit.surface_lattice.face_operators import (
@@ -40,6 +41,7 @@ __all__ = [
     "generate_tetrachiral_cell",
     "generate_trichiral_cell",
     "tessellate_chiral_domain",
+    "tessellate_reentrant_domain",
     "dedupe_2d_segments",
     "apply_surface_pattern_to_mesh",
     "segments_from_tri_face",

@@ -262,12 +262,15 @@ def tessellate_chiral_domain(
     raw_segments: list[tuple[np.ndarray, np.ndarray]] = []
     circle_angles = np.linspace(0.0, 2.0 * np.pi, n_circle_segs, endpoint=False)
 
-    topo_key = topology.lower().replace("_chiral", "")
-    if topo_key == "tetra":
+    topo_lower = topology.lower().strip()
+    is_chiral = not (topo_lower.startswith("anti_") or topo_lower.startswith("anti"))
+    topo_clean = topo_lower.replace("anti_", "").replace("anti", "").replace("_chiral", "").replace("chiral", "")
+
+    if topo_clean == "tetra":
         alpha = np.arctan(2.0 * r_node / L)
         m_rows = int(np.ceil(domain_height / D))
         metadata = {
-            "topology": "tetra_chiral",
+            "topology": "tetra_chiral" if is_chiral else "anti_tetra_chiral",
             "pitch_D": float(D),
             "ligament_L": float(L),
             "r_node": float(r_node),
@@ -290,18 +293,23 @@ def tessellate_chiral_domain(
 
                 # Four tangent ligaments
                 for k in range(4):
-                    th_base = -alpha + k * (np.pi / 2.0)
-                    p_start = c + r_node * np.array([-np.sin(th_base), np.cos(th_base)])
-                    p_end = p_start + L * np.array([np.cos(th_base), np.sin(th_base)])
+                    if is_chiral:
+                        th_base = -alpha + k * (np.pi / 2.0)
+                        p_start = c + r_node * np.array([-np.sin(th_base), np.cos(th_base)])
+                        p_end = p_start + L * np.array([np.cos(th_base), np.sin(th_base)])
+                    else:
+                        ang = k * (np.pi / 2.0)
+                        p_start = c + r_node * np.array([-np.sin(ang), np.cos(ang)])
+                        p_end = p_start + L * np.array([np.cos(ang), np.sin(ang)])
                     raw_segments.append((p_start, p_end))
 
-    elif topo_key == "tri":
+    elif topo_clean == "tri":
         phi = np.arcsin(2.0 * r_node / D)
         a1 = np.array([D, 0.0])
         a2 = np.array([D * 0.5, D * np.sqrt(3.0) / 2.0])
         m_rows = int(np.ceil(domain_height / a2[1]))
         metadata = {
-            "topology": "tri_chiral",
+            "topology": "tri_chiral" if is_chiral else "anti_tri_chiral",
             "pitch_D": float(D),
             "ligament_L": float(L),
             "r_node": float(r_node),
@@ -324,8 +332,11 @@ def tessellate_chiral_domain(
 
                 # Three tangent ligaments
                 for k in range(3):
-                    th_base = phi + k * (2.0 * np.pi / 3.0)
-                    tang_ang = th_base - phi
+                    if is_chiral:
+                        th_base = phi + k * (2.0 * np.pi / 3.0)
+                        tang_ang = th_base - phi
+                    else:
+                        tang_ang = k * (2.0 * np.pi / 3.0)
                     p_start = c + r_node * np.array([-np.sin(tang_ang), np.cos(tang_ang)])
                     p_end = p_start + L * np.array([np.cos(tang_ang), np.sin(tang_ang)])
                     raw_segments.append((p_start, p_end))
@@ -340,6 +351,144 @@ def tessellate_chiral_domain(
     for p0, p1 in raw_segments:
         line = LineString([p0, p1])
         cy = line.intersection(y_band)
+        if not cy.is_empty:
+            if cy.geom_type == "LineString":
+                clipped.append((np.array(cy.coords[0]), np.array(cy.coords[1])))
+            elif cy.geom_type == "MultiLineString":
+                for sub in cy.geoms:
+                    clipped.append((np.array(sub.coords[0]), np.array(sub.coords[1])))
+
+    period = domain_width if periodic_x else None
+    unique = dedupe_2d_segments(clipped, period_x=period)
+    metadata["n_segments"] = len(unique)
+    return unique, metadata
+
+
+def tessellate_reentrant_domain(
+    domain_width: float,
+    domain_height: float,
+    n_circumferential: int = 10,
+    m_vertical: int | None = None,
+    w_top_ratio: float = 0.65,
+    w_waist_ratio: float = 0.30,
+    variant: str = "base",
+    periodic_x: bool = True,
+    y_base: float = 0.0,
+) -> tuple[list[tuple[np.ndarray, np.ndarray]], dict]:
+    """
+    Generate 2D line segments for Chen et al. (2020) re-entrant auxetic lattice on a domain.
+
+    Parameters
+    ----------
+    domain_width : float
+        Domain width in mm (or circumference 2*pi*R_mid for cylinders).
+    domain_height : float
+        Domain height in mm.
+    n_circumferential : int
+        Number of periodic cell columns across domain width.
+    m_vertical : int, optional
+        Number of cell rows along height. If None, auto-calculated from cell aspect ratio.
+    w_top_ratio : float
+        Width of top/bottom caps as fraction of cell width a (default 0.65).
+    w_waist_ratio : float
+        Width of waist as fraction of cell width a (default 0.30).
+    variant : str
+        'base' (re-entrant hexagonal cell), 'type_a' (horizontal waist rib), or 'type_b' (vertical central rib).
+    periodic_x : bool
+        If True, enforces closed-form periodic wrapping for cylinders.
+    y_base : float
+        Y coordinate offset of bottom boundary.
+
+    Returns
+    -------
+    segments : list of tuple(ndarray, ndarray)
+        Deduplicated 2D line segments.
+    metadata : dict
+        Geometric parameters.
+    """
+    a = domain_width / float(n_circumferential)
+    if m_vertical is None:
+        m_vertical = max(int(round(domain_height / a)), 1)
+    b = domain_height / float(m_vertical)
+    w_top = w_top_ratio * a
+    w_waist = w_waist_ratio * a
+    h_waist_y = b / 2.0
+
+    delta_u = (w_top - w_waist) / 2.0
+    theta_from_vertical_deg = float(np.degrees(np.arctan(delta_u / (b / 2.0))))
+    theta_from_horizontal_deg = float(90.0 - theta_from_vertical_deg)
+
+    metadata = {
+        "topology": "reentrant",
+        "variant": variant,
+        "domain_width": float(domain_width),
+        "domain_height": float(domain_height),
+        "y_base": float(y_base),
+        "n_circumferential": int(n_circumferential),
+        "m_vertical": int(m_vertical),
+        "a_cell_width_mm": float(a),
+        "b_cell_height_mm": float(b),
+        "w_top_mm": float(w_top),
+        "w_waist_mm": float(w_waist),
+        "theta_from_vertical_deg": theta_from_vertical_deg,
+        "theta_from_horizontal_deg": theta_from_horizontal_deg,
+    }
+
+    raw_segments: list[tuple[np.ndarray, np.ndarray]] = []
+    cols = n_circumferential if periodic_x else n_circumferential + 1
+
+    for i in range(cols):
+        u_c = (i + 0.5) * a
+        u_tl = u_c - w_top / 2.0
+        u_tr = u_c + w_top / 2.0
+        u_wl = u_c - w_waist / 2.0
+        u_wr = u_c + w_waist / 2.0
+
+        for j in range(m_vertical):
+            y_bot = y_base + j * b
+            y_mid = y_bot + h_waist_y
+            y_top = y_bot + b
+
+            p_tl = np.array([u_tl, y_top])
+            p_tr = np.array([u_tr, y_top])
+            p_bl = np.array([u_tl, y_bot])
+            p_br = np.array([u_tr, y_bot])
+            p_wl = np.array([u_wl, y_mid])
+            p_wr = np.array([u_wr, y_mid])
+
+            # 1. Top and bottom horizontal boundary caps
+            raw_segments.append((p_tl, p_tr))
+            raw_segments.append((p_bl, p_br))
+
+            # 2. Slanted re-entrant struts
+            raw_segments.append((p_tl, p_wl))
+            raw_segments.append((p_bl, p_wl))
+            raw_segments.append((p_tr, p_wr))
+            raw_segments.append((p_br, p_wr))
+
+            # 3. Horizontal waist connector to the right adjacent cell
+            if periodic_x or (i < n_circumferential - 1):
+                u_next_c = (i + 1.5) * a
+                u_next_wl = u_next_c - w_waist / 2.0
+                p_next_wl = np.array([u_next_wl, y_mid])
+                raw_segments.append((p_wr, p_next_wl))
+
+            # 4. Variant-specific reinforcement struts
+            if variant == "type_a":
+                raw_segments.append((p_wl, p_wr))
+            elif variant == "type_b":
+                p_c_bot = np.array([u_c, y_bot])
+                p_c_top = np.array([u_c, y_top])
+                raw_segments.append((p_c_bot, p_c_top))
+
+    from shapely.geometry import box, LineString
+    x_min_clip = -a if periodic_x else 0.0
+    x_max_clip = domain_width + a if periodic_x else domain_width
+    clip_band = box(x_min_clip, y_base, x_max_clip, y_base + domain_height)
+    clipped: list[tuple[np.ndarray, np.ndarray]] = []
+    for p0, p1 in raw_segments:
+        line = LineString([p0, p1])
+        cy = line.intersection(clip_band)
         if not cy.is_empty:
             if cy.geom_type == "LineString":
                 clipped.append((np.array(cy.coords[0]), np.array(cy.coords[1])))

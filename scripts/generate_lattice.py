@@ -146,20 +146,29 @@ def run_headless(stl_path, config_path, output_path, export_format=None):
         
         cell_size = params.get("explicit_cell_size", 5.0)
         strut_radius = params.get("explicit_strut_radius", 0.5)
-        lattice_type = params.get("explicit_lattice_type", "A15")
+        lattice_type = params.get("explicit_lattice_type", "SC")
         mode = params.get("explicit_mode", "conformal")
         
         out = Path(output_path)
         export_dir = str(out.parent)
+        
+        rule_name = params.get("explicit_rule_name", "octahedral")
+        dual_width = params.get("explicit_dual_width", None)
+        dual_thickness = params.get("explicit_dual_thickness", None)
         
         result = generate_conformal_lattice(
             cad_filepath=repaired_mesh,
             cell_size=cell_size,
             strut_radius=strut_radius,
             lattice_type=lattice_type,
+            rule_name=rule_name,
+            dual_width=dual_width,
+            dual_thickness=dual_thickness,
             export_dir=export_dir,
             mode=mode,
         )
+        if isinstance(result, dict) and result.get("mesh") is not None:
+            result["mesh"].export(str(out))
 
     print(f"--- Done! Result saved under {output_path} ---")
 

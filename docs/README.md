@@ -21,7 +21,7 @@ Human hub for deep guides. **Agents:** start at [`../AGENTS.md`](../AGENTS.md), 
 
 | Module | Capability card | Canonical doc(s) |
 |--------|-----------------|------------------|
-| Explicit | [graphite/explicit/README.md](../graphite/explicit/README.md) | [EXPLICIT_ENGINE.md](EXPLICIT_ENGINE.md), [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md), [HEX_EXPLICIT_ENGINE.md](HEX_EXPLICIT_ENGINE.md), [MODULAR_SC_CONFORMAL.md](MODULAR_SC_CONFORMAL.md), [CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md) |
+| Explicit | [graphite/explicit/README.md](../graphite/explicit/README.md) | [A15_KAGOME_AND_SC_SURFACE_DUAL.md](A15_KAGOME_AND_SC_SURFACE_DUAL.md), [EXPLICIT_ENGINE.md](EXPLICIT_ENGINE.md), [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md), [HEX_EXPLICIT_ENGINE.md](HEX_EXPLICIT_ENGINE.md), [MODULAR_SC_CONFORMAL.md](MODULAR_SC_CONFORMAL.md), [CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md) |
 | Interlinked & PAMs | [graphite/explicit/interlinked/README.md](../graphite/explicit/interlinked/README.md) | [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [POLYCATED_ARCHITECTED_MATERIALS.md](POLYCATED_ARCHITECTED_MATERIALS.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md) |
 | Implicit | [graphite/implicit/README.md](../graphite/implicit/README.md) | [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md), [IMPLICIT_ENGINE.md](IMPLICIT_ENGINE.md), [TPMS_CALIBRATION_WORKFLOW.md](TPMS_CALIBRATION_WORKFLOW.md), [PIECEWISE_PRISM_LATTICE_GENERATION.md](PIECEWISE_PRISM_LATTICE_GENERATION.md) |
 | Math | [graphite/math/README.md](../graphite/math/README.md) | [LATTICE_MATH_ARCHITECTURE.md](LATTICE_MATH_ARCHITECTURE.md) |
@@ -30,6 +30,7 @@ Human hub for deep guides. **Agents:** start at [`../AGENTS.md`](../AGENTS.md), 
 | Topology opt | [graphite/topt/README.md](../graphite/topt/README.md) | [TOPOLOGY_OPTIMIZATION.md](TOPOLOGY_OPTIMIZATION.md) |
 | Case study 1 mm | [graphite/case_studies/README.md](../graphite/case_studies/README.md) | [CASE_STUDY_CUBE_1MM.md](CASE_STUDY_CUBE_1MM.md) |
 | Repair / geometry / io / viz | [repair](../graphite/repair/README.md) · [geometry](../graphite/geometry/README.md) · [io](../graphite/io/README.md) · [viz](../graphite/viz/README.md) | [MASTER_ARCHITECTURE.md](MASTER_ARCHITECTURE.md) |
+| Interactive UI & CLI | [graphite/ui/README.md](../graphite/ui/README.md) | [TRAME_UI_AND_CLI.md](TRAME_UI_AND_CLI.md) |
 | Legacy GMSH | [graphite/legacy_gmsh/README.md](../graphite/legacy_gmsh/README.md) | [CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md) (historical APIs) |
 
 ### Repository layout
@@ -58,9 +59,11 @@ Open these only when the task matches the sprint. Prefer the package card first.
 | [EXPLICIT_CHIRAL_AUXETIC_LATTICES.md](EXPLICIT_CHIRAL_AUXETIC_LATTICES.md) | Chiral & auxetic metamaterials architecture & API guide |
 | [STREAMLIT_REVAMP.md](STREAMLIT_REVAMP.md) | UI revamp plan (**not implemented**) |
 | [OUTPUTS_MODELS_CLEANUP_HANDOFF.md](OUTPUTS_MODELS_CLEANUP_HANDOFF.md) | `outputs/models/` cleanup guardrails |
+| [PRUSA_SPOOL_CAPS_CATALOG.md](PRUSA_SPOOL_CAPS_CATALOG.md) | Prusa Core One contest spool caps (150 models, parameters, previews, reproduction guide) |
 
 ### Explicit dual / SC lab (open one version, not all)
 
+- [CENTROID_AGGLOMERATED_QUAD_DUAL_RETROSPECTIVE.md](CENTROID_AGGLOMERATED_QUAD_DUAL_RETROSPECTIVE.md) — **CAQD retrospective / sunset post-mortem** (Sept 2026)
 - [SURFACE_FIRST_DUAL_TRIM.md](SURFACE_FIRST_DUAL_TRIM.md), [LAYERED_SURFACE_DUAL_ROLES_ALIGN.md](LAYERED_SURFACE_DUAL_ROLES_ALIGN.md)
 - [SC_CONFORMAL_COMPARE_V2_1_PLAN.md](SC_CONFORMAL_COMPARE_V2_1_PLAN.md), [SC_CONFORMAL_COMPARE_V4_SURFACE_RELAX.md](SC_CONFORMAL_COMPARE_V4_SURFACE_RELAX.md)
 - [SC_CONFORMAL_FUTURE_WORK.md](SC_CONFORMAL_FUTURE_WORK.md), [SC_CONFORMAL_SURFACE_RELAXATION_IDEAS.md](SC_CONFORMAL_SURFACE_RELAXATION_IDEAS.md) — **not implemented**

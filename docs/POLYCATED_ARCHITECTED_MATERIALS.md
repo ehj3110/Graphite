@@ -86,6 +86,43 @@ guaranteeing that touching or penetrating volumes are strictly absent.
 
 ## 5. Python API Reference
 
+### 5.1 Canonical Production Entrypoint (Modular Engine)
+
+All production lattices must be generated through the canonical modular engine:
+
+```python
+from graphite.explicit.interlinked import InterlinkedConfig, generate_interlinked_lattice
+
+# Canonical D-4-TET on Diamond Lattice
+result_d4 = generate_interlinked_lattice(InterlinkedConfig(
+    cell="d4tet",
+    grid_size=(2, 2, 2),
+    pitch=25.0,                 # Conventional unit cell size a_conv in mm
+    wire_radius=0.50,           # Strut wire radius in mm
+    seeding_type="diamond",
+    min_clearance=0.40,
+    auto_resolve_pitch=False,
+))
+
+# Canonical C-6-TT on Simple Cubic Grid
+result_c6 = generate_interlinked_lattice(InterlinkedConfig(
+    cell="c6tt",
+    grid_size=(3, 3, 3),
+    pitch=12.7,                 # Lattice repeat pitch a0 in mm
+    wire_radius=0.625,
+    seeding_type="cartesian",
+    min_clearance=0.30,
+))
+
+# Export to watertight STL or compact instanced 3MF
+result_d4.export_stl("outputs/d4tet_canonical.stl")
+result_d4.export_3mf("outputs/d4tet_canonical.3mf")
+```
+
+### 5.2 Procedural Adapter & Research API (`pams.py`)
+
+The procedural generators in `pams.py` are retained as low-level research and unit-test harnesses:
+
 ```python
 from graphite.explicit.interlinked import (
     generate_truncated_tetrahedron_particle,
@@ -135,9 +172,10 @@ pam_lattice = generate_pam_lattice(
 ## 6. Verification & Test Suite
 
 The PAM subsystem is covered by comprehensive unit and integration tests:
+- `tests/test_interlinked_pam_integration.py`: Canonical multi-cell integration test suite (D4-TET, C6-TT, J4-OCT, DfAM guardrail, clean miter default, auto-pitch).
 - `tests/test_pam_c6tt.py`: Topology, tuple unpacking, clearance verification, Boolean intersection, multibody STL export, routing, and parameter recalibration.
+- `tests/test_pam_d4tet.py`: D-4-TET diamond network topology, corner catenation, clearance scaling, and 3D bulk tiling.
 - `tests/test_pam_polyhedra.py`: Cuboctahedra, Octahedra, coordination shell star, and planar crosses.
-- `scripts/generate_c6tt_tiling_review.py`: Generates deliverables `outputs/c6tt_3d_bulk.stl` and `outputs/c6tt_3d_bulk.png`.
 
 ---
 
@@ -163,10 +201,13 @@ $$\Delta = d_{\text{centerline}} - D_{\text{strut}} = \kappa \cdot a - D_{\text{
   - At $a_0 = 5.0\text{ mm}$, the maximum allowable strut diameter is $D_{\text{strut}} = 0.35\text{ mm}$ ($\Delta = 0.3069\text{ mm}$).
 
 - **For `D-4-TET`:**
-  $$\kappa_{\text{D4TET}} \approx 0.2354 \implies d_{\text{centerline}} = 0.2354 \times d_{\text{bond}}$$
-  - At $d_{\text{bond}} = 5.0\text{ mm}$, $d_{\text{centerline}} = 1.177\text{ mm}$.
-  - For $D_{\text{strut}} = 1.0\text{ mm}$, surface clearance is positive: $\Delta = 1.177\text{ mm} - 1.000\text{ mm} = 0.1770\text{ mm} > 0$.
-  - Thus, **`D-4-TET` can cleanly accommodate a $1.0\text{ mm}$ strut diameter at $d_{\text{bond}} = 5.0\text{ mm}$**.
+  Depending on parameterization (bond length $d_{\text{bond}}$ vs conventional cubic cell size $a_{\text{conv}}$):
+  $$d_{\text{centerline}} = \kappa_{\text{bond}} \times d_{\text{bond}} = \kappa_{\text{conv}} \times a_{\text{conv}}$$
+  Since $a_{\text{conv}} = \frac{4}{\sqrt{3}} d_{\text{bond}} \approx 2.3094 \times d_{\text{bond}}$:
+  $$\kappa_{\text{conv}} = \frac{\kappa_{\text{bond}}}{2.3094} = \frac{0.2354}{2.3094} \approx \mathbf{0.1018}$$
+  - **In `pams.py` (bond pitch $d_{\text{bond}}$):** $\kappa_{\text{bond}} = 0.2354$. At $d_{\text{bond}} = 5.0\text{ mm}$, $d_{\text{centerline}} = 1.177\text{ mm}$.
+  - **In `D4TetCell` (conventional pitch $a_{\text{conv}}$):** $\kappa_{\text{conv}} = 0.1018$. At $a_{\text{conv}} = 25.0\text{ mm}$, $d_{\text{centerline}} = 0.1018 \times 25.0 = 2.545\text{ mm}$.
+  - For $D_{\text{strut}} = 1.0\text{ mm}$ ($r = 0.5\text{ mm}$), surface clearance is positive: $\Delta = 2.545\text{ mm} - 1.000\text{ mm} = 1.545\text{ mm}$. Exactly matching numerical verification.
 
 ### 7.3 Strip Deliverables ($75 \times 25 \times 20\text{ mm}$) — Clean Mitered Trusses
 
@@ -190,3 +231,84 @@ Both strip deliverables have been regenerated with **clean mitered truss connect
   - Min surface clearance: $\Delta = 418.4\ \mu\text{m}$ ($0.4184\text{ mm} \ge 0.30\text{ mm}$).
   - Joint style: Clean mitered trusses (`add_spheres=False`, `circular_segments=24`).
   - File size: $2.10\text{ MB}$ (watertight multi-body solid).
+
+---
+
+## 8. Functionally Graded PAMs (Directional Thickness Gradation)
+
+Functionally graded polycatenated architected materials grade the physical strut radius $r(\mathbf{x})$ continuously across space while preserving strictly positive inter-cage clearance ($\Delta > 0$) between all adjacent catenated particles.
+
+### 8.1 Analytical Formulation & Clearance Scaling
+
+For a 1D thickness gradient along the Cartesian $X$-axis:
+$$r(X) = r_{\min} + (r_{\max} - r_{\min}) \cdot \frac{X - X_{\min}}{X_{\max} - X_{\min}}$$
+
+Between two adjacent catenated particles $A$ (at $X$) and $B$ (at $X + a_0$), the minimum surface-to-surface clearance is governed by:
+$$\Delta(X) = d_{\text{centerline}} - \left(r(X) + r(X + a_0)\right)$$
+
+Since $d_{\text{centerline}} = \kappa \cdot a_0$ is constant for a uniform spatial grid ($a_0 = 1.25 \times s$):
+$$\Delta(X) = \kappa \cdot a_0 - 2 \cdot r(X) - \delta_r, \quad \text{where } \delta_r = \frac{r_{\max} - r_{\min}}{N_x - 1}$$
+
+To ensure non-colliding printability throughout the entire graded domain:
+$$\Delta_{\min} = \Delta(X_{\max} - a_0) \ge \Delta_{\text{target}} > 0$$
+
+### 8.2 Production Deliverables & Verification
+
+- **Case Study Lattice:** C-6-TT $5 \times 3 \times 2$ (30 discrete particles) across $L_x = 40\text{ mm}$, $a_0 = 10.0\text{ mm}$, cage size $s = 8.0\text{ mm}$.
+- **Strut Radius Range:** $r \in [0.22\text{ mm}, 0.58\text{ mm}]$ (strut diameter $D \in [0.44\text{ mm}, 1.16\text{ mm}]$).
+- **Clearance Profile:**
+  - Thin end ($X = 0\text{ mm}$): $r = 0.22\text{ mm} \implies \Delta = +0.87\text{ mm}$
+  - Thick end ($X = 40\text{ mm}$): $r = 0.58\text{ mm} \implies \Delta = +0.51\text{ mm}$
+  - Global minimum clearance: $\Delta_{\min} = +0.514\text{ mm} \ge 0.30\text{ mm}$ (zero collisions).
+- **Script:** [`scripts/generate_graded_c6tt_pam_figure.py`](../scripts/generate_graded_c6tt_pam_figure.py)
+- **Publication Figure:** [`outputs/graded_pam_c6tt_thickness_gradient.png`](../outputs/graded_pam_c6tt_thickness_gradient.png)
+
+---
+
+## 9. Topological & Morphological Transitions (`C-6-TT` $\leftrightarrow$ `D-4-TET`)
+
+A continuous topological and morphological transition bridges the two primary 3D kinematic PAM architectures:
+1. **`C-6-TT`:** Truncated Tetrahedron on Simple Cubic (`pcu`, coordination $z = 6$).
+2. **`D-4-TET`:** Regular Tetrahedron on Diamond Network (`dia`, coordination $z = 4$).
+
+### 9.1 Parametric Cage Homomorphism
+
+The two polyhedral cages are geometrically homomorphic via a continuous parametric vertex truncation parameter $\tau \in [0, 1/3]$ applied to a base regular tetrahedron with vertices $V_k \in \{\pm 1, \pm 1, \pm 1\}$:
+$$V = \begin{bmatrix} +1 & +1 & +1 \\ +1 & -1 & -1 \\ -1 & +1 & -1 \\ -1 & -1 & +1 \end{bmatrix} \times \frac{s}{\sqrt{2}}$$
+
+For each of the 6 edges $(i, j)$:
+$$P_{ij} = (1 - \tau) V_i + \tau V_j, \quad P_{ji} = \tau V_i + (1 - \tau) V_j$$
+
+- **$\tau = 1/3 \approx 0.333$ (Archimedean Truncated Tetrahedron):**
+  - 12 nodes, 18 struts.
+  - 4 large hexagonal faces + 4 triangular corner cutouts.
+- **$0 < \tau < 1/3$ (Intermediate Morphing Cages):**
+  - 12 nodes, 18 struts.
+  - Corner cutouts shrink continuously as $\tau \to 0$, hexagonal facets evolve into elongated diamond facets.
+- **$\tau = 0.000$ (Platonic Regular Tetrahedron):**
+  - Truncated corner vertices converge to points: $P_{ij} \to V_i$.
+  - Exact reduction to 4 nodes and 6 struts.
+
+### 9.2 Continuous Multi-Layer Spatial Blending Lattice
+
+Rather than placing disconnected domains side-by-side, the 3D metamaterial transition is synthesized as a continuous **$6 \times 2 \times 2$ (24 cages)** polycatenated lattice where the unit cells continuously morph layer-by-layer along the $X$-axis:
+
+| Layer | $X$-Position | Truncation $\tau$ | Nodes / Struts | Morphological Stage | Color Code |
+| :---: | :---: | :---: | :---: | :--- | :--- |
+| **L0** | $0\text{ mm}$ | $0.333$ | 12 / 18 | Pure C-6-TT Archimedean Truncated Tetrahedron | Oceanic Teal (`#0FA4AF`) |
+| **L1** | $10\text{ mm}$ | $0.267$ | 12 / 18 | Early Morph: corner cutouts shrinking | Cyan (`#00B4D8`) |
+| **L2** | $20\text{ mm}$ | $0.200$ | 12 / 18 | Mid Morph: hybrid hex/tri facets | Sea Green (`#2EC4B6`) |
+| **L3** | $30\text{ mm}$ | $0.133$ | 12 / 18 | Advanced Morph: corners collapsing | Amber (`#FF9F1C`) |
+| **L4** | $40\text{ mm}$ | $0.067$ | 12 / 18 | Late Morph: corners converging toward vertices | Coral (`#FF6B6B`) |
+| **L5** | $50\text{ mm}$ | $0.000$ | 4 / 6 | Pure D-4-TET Platonic Regular Tetrahedron | Crimson (`#E63946`) |
+
+### 9.3 Kinematic Clearance & Joint Mechanics
+
+- **Lattice Pitch:** $a_x = 10.0\text{ mm}$, $a_y = 13.0\text{ mm}$, $a_z = 13.0\text{ mm}$ (with cage size $s = 8.0\text{ mm}$, strut wire radius $r = 0.35\text{ mm}$).
+- **Interlocking Catenation:** Cages physically pass through the window cutouts of adjacent layers along $X$, maintaining chainmail catenation throughout the entire 6-layer span.
+- **Global Minimum Clearance:**
+  $$\Delta_{\min} = +0.614\text{ mm} > 0 \quad (\text{zero solid collisions across all 44 interacting pairs})$$
+- **Joint Solidification:** Constructed using `build_clean_miter_truss` with analytical bisector cutting planes, producing 100% watertight 2-manifold STL solids with zero spherical fillet bulges.
+- **Script:** [`scripts/generate_transition_c6_to_d4_figure.py`](../scripts/generate_transition_c6_to_d4_figure.py)
+- **Publication Figure:** [`outputs/transition_pam_c6_to_d4.png`](../outputs/transition_pam_c6_to_d4.png)
+

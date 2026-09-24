@@ -143,6 +143,7 @@ class InterlinkedConfig:
     frame_margin: float = 0.50
     frame_shape: str = "box"
     export_format: str = "stl"
+    support_recipe: str | None = None
 
 
 @dataclass
@@ -378,9 +379,35 @@ def generate_interlinked_lattice(
             pitch = float(config.pitch)
 
         wire_r = float(config.wire_radius)
+        strut_d = 2.0 * wire_r
+
+        # DfAM Pre-Flight Guardrail: analytical check before spatial allocation
+        try:
+            pred_clr = cell.forward_clearance(pitch, strut_d)
+            if pred_clr < 0.0:
+                min_p = cell.resolve_pitch(0.0, strut_d)
+                raise ValueError(
+                    f"DfAM Pre-Flight Rejection: Cell '{getattr(cell, 'cell_name', getattr(cell, 'name', 'unknown'))}' "
+                    f"at pitch={pitch:.3f} mm and wire_radius={wire_r:.3f} mm has negative predicted clearance "
+                    f"({pred_clr:.3f} mm). Components will physically collide and fuse. Minimum pitch required "
+                    f"for zero collision: {min_p:.3f} mm."
+                )
+            if check_clearance and pred_clr < float(config.min_clearance) - 1e-6:
+                import warnings
+                warnings.warn(
+                    f"DfAM Clearance Warning: Cell '{getattr(cell, 'cell_name', getattr(cell, 'name', 'unknown'))}' "
+                    f"at pitch={pitch:.3f} mm has predicted clearance ({pred_clr:.3f} mm) below requested "
+                    f"min_clearance ({config.min_clearance:.3f} mm).",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        except (AttributeError, NotImplementedError):
+            pass
+
         seeding_type = config.seeding_type.lower().strip()
 
         # Spatial Seeding
+        sublattice_ids = None
         if seeding_type in ("cylindrical", "cylinder", "cylindrical_wrap"):
             R = config.cylinder_radius if config.cylinder_radius is not None else 20.0
             H = config.cylinder_height if config.cylinder_height is not None else 30.0
@@ -404,9 +431,9 @@ def generate_interlinked_lattice(
             frames = sph_dict["frames"]
             indices = sph_dict["indices"]
         elif seeding_type in ("diamond", "cubic_diamond"):
-            centers, frames, indices = seed_diamond_lattice(
+            centers, frames, indices, sublattice_ids = seed_diamond_lattice(
                 repeats=config.grid_size,
-                pitch=pitch,
+                conventional_cell_size=pitch,
                 origin=config.origin,
             )
         elif seeding_type in ("staggered", "brick", "bcc_staggered"):
@@ -436,6 +463,7 @@ def generate_interlinked_lattice(
             frames=frames,
             grid_indices=indices,
             cell_pitch=pitch,
+            sublattice_ids=sublattice_ids,
         )
 
         # Boundary Culling (Policy A)
@@ -457,6 +485,12 @@ def generate_interlinked_lattice(
                 "Increase domain size or reduce cell pitch / cull_margin."
             )
 
+        # Apply support recipe if requested
+        if config.support_recipe and str(config.support_recipe).lower() not in ("none", "unprinted", "", "none (unprinted / free)"):
+            from .support_recipes import apply_support_recipe
+            for p in particles:
+                p.geometry = apply_support_recipe(p.geometry, config.support_recipe, wire_radius=wire_r)
+
         # Boundary Perimeter Framing (Policy C)
         frame_mesh: trimesh.Trimesh | None = None
         if config.add_perimeter_frame:
@@ -470,7 +504,7 @@ def generate_interlinked_lattice(
         # Clearance Verification
         min_clr = float("inf")
         clearance_valid = True
-        clr_report: dict[str, Any] = {}
+        clr_report: list[dict[str, Any]] = []
         if check_clearance and len(particles) > 1:
             clearance_valid, min_clr, clr_report = check_particle_clearance(
                 particles,

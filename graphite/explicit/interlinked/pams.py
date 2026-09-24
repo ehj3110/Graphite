@@ -1,15 +1,19 @@
 """
 Graphite Explicit Interlinked — Polycatenated Architected Materials (PAMs)
 
-Discrete polyhedral wireframe particles catenated on crystalline networks
-(Zhou et al., Science 2025). Phase 1 focuses on D-4-TET: diamond-network
-corner-to-corner interlocking of tetrahedral cages.
+Procedural Research & Compatibility Adapter for PAM particles and lattices (Zhou et al., Science 2025).
+
+NOTE FOR AGENTS & DEVELOPERS:
+    This module provides low-level procedural polyhedral generators, analytical clearance solvers,
+    and legacy test fixtures. For all production lattice generation, use the canonical modular engine:
+        from graphite.explicit.interlinked import generate_interlinked_lattice, InterlinkedConfig
+        result = generate_interlinked_lattice(InterlinkedConfig(cell="d4tet", ...))
 
 Design rules:
     - Connectivity arrays are named ``struts`` (local per-particle indices).
     - Particles never share nodes across bodies (no KD-tree merge).
     - Clearance uses segment–segment centerline distance from ``.clearance``.
-    - Solids via ``graphite.explicit.geometry_module.generate_geometry``.
+    - Solids via ``graphite.explicit.geometry_module.build_clean_miter_truss`` (clean miter default).
 """
 
 from __future__ import annotations
@@ -604,41 +608,57 @@ def calibrate_d4tet_edge_length(
     *,
     bond_length: float | None = None,
 ) -> float:
-    """
-    Return tet edge length L for a fixed diamond conventional cell size ``a``.
-
-    Bond length defaults to the crystallographic diamond nearest-neighbor
-    spacing ``d = a√3/4``. Searches L so dual A/B cages are corner-catenated
-    with strut Δ ≥ ``min_clearance``.
-    """
+    """Find tet edge L for fixed diamond conventional cell a (default bond d=a√3/4)."""
     a = float(conventional_cell_size)
     if a <= 0.0:
         raise ValueError(f"conventional_cell_size must be positive, got {a}")
     d = float(bond_length) if bond_length is not None else a * np.sqrt(3.0) / 4.0
     r = float(strut_radius)
     t_min = float(min_clearance)
-    u = np.array([1.0, 1.0, 1.0], dtype=np.float64)
-    u /= float(np.linalg.norm(u))
 
-    # Invert the usual d∈[0.55, 0.98]·2R_c window (R_c = √6/4 · L), then widen.
-    L_lo = d / 1.96 * 4.0 / np.sqrt(6.0)
-    L_hi = d / 1.1 * 4.0 / np.sqrt(6.0)
-    best: tuple[float, float] | None = None  # (clr, L)
-    for L in np.linspace(0.85 * L_lo, 1.25 * L_hi, 121):
+    b_offsets = np.array([
+        [0.25, 0.25, 0.25],
+        [0.25, -0.25, -0.25],
+        [-0.25, 0.25, -0.25],
+        [-0.25, -0.25, 0.25],
+    ], dtype=np.float64) * a
+
+    fcc_a_offsets = np.array([
+        [0.5, 0.5, 0.0], [-0.5, 0.5, 0.0], [0.5, -0.5, 0.0], [-0.5, -0.5, 0.0],
+        [0.5, 0.0, 0.5], [-0.5, 0.0, 0.5], [0.5, 0.0, -0.5], [-0.5, 0.0, -0.5],
+        [0.0, 0.5, 0.5], [0.0, -0.5, 0.5], [0.0, 0.5, -0.5], [0.0, -0.5, -0.5],
+    ], dtype=np.float64) * a
+
+    best_clr = -float("inf")
+    best_L = 0.603 * a
+    valid_candidates: list[tuple[float, float]] = []
+
+    for L in np.linspace(0.50 * a, 0.70 * a, 81):
         nodes_a, nodes_b = _tet_ab_templates(float(L))
-        pa = PAMParticle(0, nodes_a, _TET_STRUTS.copy(), np.zeros(3), "TET")
-        c = d * u
-        pb = PAMParticle(1, nodes_b + c, _TET_STRUTS.copy(), c.copy(), "TET")
-        clr = particle_pair_clearance(pa, pb, r)
-        if particles_are_corner_catenated(pa, pb) and clr >= t_min:
-            if best is None or clr > best[0]:
-                best = (clr, float(L))
-    if best is None:
-        raise RuntimeError(
-            f"No D-4-TET edge length for conventional_cell_size={a}, "
-            f"bond_length={d}, strut_radius={r}, min_clearance={t_min}."
+        pa0 = PAMParticle(0, nodes_a, _TET_STRUTS.copy(), np.zeros(3), "TET")
+        pb0 = PAMParticle(1, nodes_b + b_offsets[0], _TET_STRUTS.copy(), b_offsets[0], "TET")
+        if not particles_are_corner_catenated(pa0, pb0):
+            continue
+
+        min_b = min(
+            particle_pair_clearance(pa0, PAMParticle(i + 1, nodes_b + b, _TET_STRUTS.copy(), b, "TET"), r)
+            for i, b in enumerate(b_offsets)
         )
-    return float(best[1])
+        min_a = min(
+            particle_pair_clearance(pa0, PAMParticle(i + 10, nodes_a + c, _TET_STRUTS.copy(), c, "TET"), r)
+            for i, c in enumerate(fcc_a_offsets)
+        )
+        tot_clr = min(min_b, min_a)
+        if tot_clr > best_clr:
+            best_clr = tot_clr
+            best_L = float(L)
+        if tot_clr >= t_min:
+            valid_candidates.append((tot_clr, float(L)))
+
+    if valid_candidates:
+        valid_candidates.sort(key=lambda x: x[0], reverse=True)
+        return float(valid_candidates[0][1])
+    return float(best_L)
 
 
 def generate_d4tet_interlocked_pair(
@@ -834,25 +854,12 @@ def _min_clearance_among_particles(
     pairs = tree.query_pairs(r=search_radius)
     min_clr = float("inf")
     n_checked = 0
-    # Prioritize corner-catenated dual bonded pairs in polycatenated network (A <-> B)
+    # Check ALL candidate interacting pairs within search_radius for collisions/clearance
     for i, j in pairs:
-        sub_i = particles[i].metadata.get("sublattice", "")
-        sub_j = particles[j].metadata.get("sublattice", "")
-        if sub_i != sub_j and particles_are_corner_catenated(particles[i], particles[j]):
-            clr = particle_pair_clearance(particles[i], particles[j], r)
-            min_clr = min(min_clr, clr)
-            n_checked += 1
-    if n_checked == 0:
-        for i, j in pairs:
-            if particles_are_corner_catenated(particles[i], particles[j]):
-                clr = particle_pair_clearance(particles[i], particles[j], r)
-                min_clr = min(min_clr, clr)
-                n_checked += 1
-    if n_checked == 0:
-        for i, j in pairs:
-            clr = particle_pair_clearance(particles[i], particles[j], r)
-            min_clr = min(min_clr, clr)
-            n_checked += 1
+        clr = particle_pair_clearance(particles[i], particles[j], r)
+        if clr < min_clr:
+            min_clr = clr
+        n_checked += 1
     if n_checked == 0:
         return 0.0, 0
     return float(min_clr), n_checked
@@ -870,6 +877,7 @@ def generate_d4tet_diamond_tiling(
     add_spheres: bool = False,
     joint_sphere_scale: float = 1.15,
     circular_segments: int = 16,
+    clean_miter: bool = True,
 ) -> PAMLatticeResult:
     """
     Tile D-4-TET particles on a diamond cubic supercell (``repeats`` conventional cells).
@@ -902,8 +910,12 @@ def generate_d4tet_diamond_tiling(
             )
     else:
         L = float(12.0 if edge_length is None else edge_length)
-        d = float(bond_length) if bond_length is not None else calibrate_d4tet_bond_length(L, r, t_min)
-        a_cell = 4.0 * d / np.sqrt(3.0)
+        if bond_length is not None:
+            d = float(bond_length)
+            a_cell = 4.0 * d / np.sqrt(3.0)
+        else:
+            a_cell = L / 0.603
+            d = a_cell * np.sqrt(3.0) / 4.0
 
     nodes_a, nodes_b = _tet_ab_templates(L)
 
@@ -931,9 +943,16 @@ def generate_d4tet_diamond_tiling(
                 add_spheres=add_spheres,
                 joint_sphere_scale=float(joint_sphere_scale),
                 circular_segments=int(circular_segments),
+                clean_miter=clean_miter,
             )
     else:
         meshes = []
+
+    joint_style_name = (
+        "clean_miter"
+        if clean_miter and not add_spheres
+        else ("embedded_spheres" if add_spheres else "explicit_cylinder_compose")
+    )
 
     return PAMLatticeResult(
         particles=particles,
@@ -956,7 +975,7 @@ def generate_d4tet_diamond_tiling(
             "num_neighbor_pairs_checked": n_pairs,
             "orientation": "crystallographic_dual_AB",
             "target_min_clearance_mm": t_min,
-            "joint_style": "explicit_cylinder_compose",
+            "joint_style": joint_style_name,
         },
     )
 
@@ -1250,6 +1269,9 @@ def generate_c6tt_cubic_tiling(
     )
 
 
+generate_c6tt_lattice = generate_c6tt_cubic_tiling
+
+
 def generate_j4oct_interlocked_pair(
     size: float = 6.0,
     strut_radius: float = 0.40,
@@ -1437,6 +1459,10 @@ def generate_pam_lattice(
     )
 
 
+# Canonical clean-miter truss solidifier from geometry_module
+from graphite.explicit.geometry_module import build_clean_miter_truss
+
+
 def pam_particles_to_meshes(
     particles: Sequence[PAMParticle],
     strut_radius: float,
@@ -1444,15 +1470,35 @@ def pam_particles_to_meshes(
     add_spheres: bool = False,
     joint_sphere_scale: float = 1.15,
     circular_segments: int = 16,
+    clean_miter: bool = True,
 ) -> list[trimesh.Trimesh]:
     """
-    Solidify each particle via ``generate_geometry`` (graphite explicit strut path).
+    Solidify each particle into a watertight multi-body component.
 
-    Default matches production explicit lattices: cylinder compose at nodes with
-    ``add_spheres=False`` (overlapping strut ends form the joint — no sphere caps).
+    When ``clean_miter=True`` and ``not add_spheres``, struts are cut with mutual bisector
+    planes to form sharp, seamless mitered joints without flat end caps or notch gaps.
     """
     r = float(strut_radius)
     out: list[trimesh.Trimesh] = []
+
+    if clean_miter and not add_spheres:
+        template_cache: dict[tuple, trimesh.Trimesh] = {}
+        for p in particles:
+            local_nodes = np.asarray(p.nodes, dtype=np.float64) - np.asarray(p.center, dtype=np.float64)
+            cache_key = (p.geometry_type, tuple(np.round(local_nodes, 4).flat), r, int(circular_segments))
+            if cache_key not in template_cache:
+                template_cache[cache_key] = build_clean_miter_truss(
+                    local_nodes,
+                    np.asarray(p.struts, dtype=np.int64),
+                    r,
+                    circular_segments=circular_segments,
+                )
+            base_mesh = template_cache[cache_key]
+            mesh = base_mesh.copy()
+            mesh.apply_translation(np.asarray(p.center, dtype=np.float64))
+            out.append(mesh)
+        return out
+
     for p in particles:
         mesh = generate_geometry(
             nodes=np.asarray(p.nodes, dtype=np.float64),

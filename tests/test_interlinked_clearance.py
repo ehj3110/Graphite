@@ -243,8 +243,8 @@ class TestClearanceCalibration:
             pitch_range=(10.0, 25.0),
             num_points=10,
         )
-        # D-4-TET: Delta = 0.2350 * a_conv - 0.75
-        np.testing.assert_allclose(curve["kappa"], 0.2350, rtol=1e-3)
+        # D-4-TET: Delta = 0.1018 * a_conv - 0.75
+        np.testing.assert_allclose(curve["kappa"], 0.1018, rtol=1e-3)
         np.testing.assert_allclose(curve["intercept_mm"], -0.75, atol=1e-6)
         assert curve["r_squared"] > 0.9999
         assert curve["is_linear"] is True

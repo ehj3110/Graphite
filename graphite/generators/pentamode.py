@@ -317,9 +317,9 @@ def _build_hierarchical_subtruss_strut(
 
 def generate_pentamode_lattice(
     bounds: tuple[tuple[float, float, float], tuple[float, float, float]],
-    unit_cell_size: float,
-    r_min: float,
-    r_max: float,
+    unit_cell_size: float = 10.0,
+    r_min: float = 0.35,
+    r_max: float = 0.90,
     hierarchical: bool = False,
     sub_element_type: str = "tetrahedral",
     output_format: str = "graph",

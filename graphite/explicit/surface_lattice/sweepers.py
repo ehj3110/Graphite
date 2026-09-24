@@ -30,6 +30,8 @@ def sweep_planar_2d(
     outer_boundary: Polygon | None = None,
     inner_boundary: Polygon | None = None,
     z_center: bool = True,
+    number_glyph: Polygon | None = None,
+    number_wall: Polygon | None = None,
 ) -> trimesh.Trimesh:
     """
     Extrude 2D line segments orthogonally along Z into a solid watertight plate.
@@ -48,6 +50,10 @@ def sweep_planar_2d(
         Optional inner boundary polygon for creating a framed perimeter border.
     z_center : bool
         If True, centers the mesh vertically so Z in [-thickness/2, thickness/2].
+    number_glyph : Polygon, optional
+        Optional glyph polygon to cut out from the lattice.
+    number_wall : Polygon, optional
+        Optional boundary ribbon wall polygon to fuse around the cutout glyph.
 
     Returns
     -------
@@ -77,6 +83,14 @@ def sweep_planar_2d(
             final_poly = lattice_poly.intersection(outer_boundary)
     else:
         final_poly = lattice_poly
+
+    # Apply number cutout and perimeter wall if requested
+    if number_glyph is not None:
+        final_poly = final_poly.difference(number_glyph)
+        if number_wall is not None:
+            final_poly = final_poly.union(number_wall)
+        if outer_boundary is not None:
+            final_poly = final_poly.intersection(outer_boundary)
 
     path = trimesh.load_path(final_poly)
     extruded = path.extrude(thickness)

@@ -53,8 +53,8 @@ graphite/explicit/interlinked/
 ### 3. `cells.py` — Registered Modular Cell Library
 Comprehensive catalog of modular kinematic unit cells:
 - **`C6TTCell` (`"c6tt"`, `"c-6-tt"`):** Truncated Tetrahedron on Simple Cubic (`pcu`) with 6-fold face catenation (Zhou et al., *Science* 2025). Resolves 3D cuboctahedral collision frustration.
-- **`D4TetCell` (`"d4tet"`, `"d-4-tet"`):** Diamond cubic (`dia`) bipartite A/B dual cages with point-inversion corner catenation.
-- **`J4OctCell` (`"j4oct"`, `"j-4-oct"`):** Square planar octahedra with alternating $45^\circ$ Z-twist for tip catenation.
+- **`D4TetCell` (`"d4tet"`, `"d-4-tet"`):** Diamond cubic (`dia`) bipartite A/B dual cages with point-inversion corner catenation. Uses calibrated crystal clearance constant $\kappa = 0.1018$ and single-particle sublattice placement.
+- **`J4OctCell` (`"j4oct"`, `"j-4-oct"`):** Square planar octahedra with alternating $45^\circ$ bond-axis twist ($\pm X$ or $\pm Y$) for tip catenation.
 - **`European4in1Cell` (`"european_4in1"`, `"euro_4in1"`):** Classic diagonal checkerboard maille weave ($\pm 28^\circ$ alternating tilt).
 - **`JapaneseKusariCell` (`"japanese_kusari"`, `"kusari"`):** Tri-particle basis (1 horizontal flat ring + 2 vertical linking arch links).
 - **`NasaSpaceFabricCell` (`"nasa_space_fabric"`, `"nasa_hexagon"`):** Hexagonal close-pack space fabric with 6-fold spiral interlocking legs.
@@ -64,12 +64,12 @@ Comprehensive catalog of modular kinematic unit cells:
   - `seed_cartesian_lattice(repeats, pitch, origin)`: Regular simple cubic / square grid.
   - `seed_staggered_lattice(repeats, pitch, stagger_fraction, origin)`: 2D/3D brick-staggered lattice.
   - `seed_hexagonal_lattice(repeats, pitch, origin)`: Hexagonal close-pack ($d_y = \frac{\sqrt{3}}{2} d$).
-  - `seed_diamond_lattice(repeats, pitch, origin)`: Face-centered diamond cubic network.
+  - `seed_diamond_lattice(repeats, conventional_cell_size, origin)`: Face-centered diamond cubic network returning `(centers, frames, indices, sublattice_ids)`.
 - **Analytical Surface Primitives:**
   - `seed_cylindrical_wrap(radius, height, target_pitch, origin)`: Mandates **exact pitch-matching quantization** ($2\pi R = N_\theta \cdot a_\theta$), eliminating seams and link shearing across $0 \to 2\pi$.
   - `seed_spherical_shell(radius, target_pitch, origin)`: Uniform Fibonacci golden spiral distribution with outward radial surface normals.
 - **Universal Placer:**
-  - `instantiate_lattice_on_sites(cell, centers, frames, grid_indices, cell_pitch)`: Places arbitrary `InterlinkedCell` instances onto arbitrary 3D coordinate frames.
+  - `instantiate_lattice_on_sites(cell, centers, frames, grid_indices, cell_pitch, sublattice_ids)`: Places arbitrary `InterlinkedCell` instances onto arbitrary 3D coordinate frames with sublattice context injection.
 
 ### 5. `boundary.py` — 3-Tier Perimeter Boundary Engine
 - **Policy A (Inset Culling):**
@@ -91,21 +91,26 @@ Comprehensive catalog of modular kinematic unit cells:
     $$\Delta = \kappa \cdot a_0 - D \implies a_0 = \frac{\Delta_{\text{target}} + D}{\kappa}$$
   - Automatically falls back to Brent's root-finding method for non-linear kinematic profiles.
 
-### 7. `writer_3mf.py` — Production Instanced 3MF Exporter
-- Implements the **3MF Core Specification (ISO/IEC 5165)**:
-  - Prototype mesh geometry is written **exactly once** in `<resources>`.
-  - Each particle instance is an `<item objectid="..." transform="..."/>` reference in `<build>`.
-  - Achieves **$98.6\%$ file size reduction** compared to monolithic STL files ($17\text{ KB}$ vs $1.25\text{ MB}$ for a 16-cage assembly).
-  - Packaged as a standard OPC ZIP archive compatible with PrusaSlicer, Bambu Studio, Cura, and Magics.
+### 7. Universal Clean Miter Solidification & 3MF Export
+- **Clean Miter Truss Standard (`build_clean_miter_truss`):**
+  - All explicit truss and wireframe particles use bisector cutting planes at each node. Flat end-caps, notch gaps, and spherical bulges are eliminated.
+  - Native `manifold3d` CSG with `process=False` ensures 100% closed 2-manifold watertight components without trimesh vertex-welding artifacts.
+- **Instanced 3MF Exporter (`writer_3mf.py`):**
+  - Implements the **3MF Core Specification (ISO/IEC 5165)**:
+    - Prototype mesh geometry is written **exactly once** in `<resources>`.
+    - Each particle instance is an `<item objectid="..." transform="..."/>` reference in `<build>`.
+    - Achieves **$98.6\%$ file size reduction** compared to monolithic STL files ($17\text{ KB}$ vs $1.25\text{ MB}$ for a 16-cage assembly).
 
-### 8. `generator.py` — Top-Level Unified API
-Unified orchestrator supporting both modular cells and legacy patterns:
+### 8. `generator.py` — Canonical Unified Engine & DfAM Guardrails
+Unified entrypoint for all interlinked lattice production:
+- **DfAM Pre-Flight Guardrail:** Checks `cell.forward_clearance(pitch, 2 * wire_radius)` before allocating sites. Rejects physical collision configurations with an informative `ValueError` stating the minimum collision-free pitch required.
+- **Canonical Usage Example:**
 ```python
 from graphite.explicit.interlinked import InterlinkedConfig, generate_interlinked_lattice
 
 # Configure an inverse-calibrated C-6-TT lattice with a solid perimeter frame
 config = InterlinkedConfig(
-    cell="c6tt",
+    cell="c6tt",                # "c6tt", "d4tet", "j4oct", "euro_4in1", "kusari", "nasa_hexagon"
     grid_size=(4, 4, 1),
     wire_radius=0.45,
     min_clearance=0.50,
@@ -124,10 +129,27 @@ result.export_stl("lattice.stl")  # Watertight monolithic STL
 
 ---
 
+## Canonical Standard vs. Procedural Legacy Bridge
+
+> [!IMPORTANT]
+> **Production Standard:** All future interlinked lattice generation MUST use `generate_interlinked_lattice(InterlinkedConfig(cell=...))` with registered cells from `InterlinkedRegistry`.  
+> The procedural functions in `pams.py` (`generate_pam_lattice`, `generate_d4tet_diamond_tiling`, etc.) are retained strictly as backward-compatible bridges and unit-test harnesses. Do not write new ad-hoc procedural lattice loops.
+
+---
+
+## Functionally Graded PAMs & Morphological Transitions
+
+The interlinked engine supports continuous spatial functional grading and inter-topology transitions while strictly maintaining physical non-bonding clearance ($\Delta > 0$):
+- **Functionally Graded PAMs:** Continuously grade strut radius $r(\mathbf{x})$ along spatial gradients (e.g. $r = 0.22 \to 0.58\text{ mm}$ on C-6-TT) while guaranteeing $\Delta(x) \ge \Delta_{\min}$ across all interacting particles ([`outputs/graded_pam_c6tt_thickness_gradient.png`](../../../outputs/graded_pam_c6tt_thickness_gradient.png)).
+- **C-6-TT $\leftrightarrow$ D-4-TET Morphological Transitions:** Continuous parametric vertex truncation $\tau \in [0, 1/3]$ applied across multi-layer spatial lattices ($6 \times 2 \times 2 = 24$ cages) with verified positive clearance $\Delta = +0.614\text{ mm}$ ([`outputs/transition_pam_c6_to_d4.png`](../../../outputs/transition_pam_c6_to_d4.png)).
+- Full mathematical theory, scaling laws, and case studies: see [docs/POLYCATED_ARCHITECTED_MATERIALS.md](../../../docs/POLYCATED_ARCHITECTED_MATERIALS.md).
+
+---
+
 ## Unit Testing & Verification
 
-Run the complete interlinked and polycatenated metamaterial test battery:
+Run the complete interlinked, polycatenated metamaterial, and integration test battery:
 ```bash
-pytest tests/test_interlinked_*.py tests/test_pam_*.py
+python -m pytest tests/test_interlinked_pam_integration.py tests/test_interlinked_*.py tests/test_pam_*.py
 ```
-All **94/94 tests** pass cleanly.
+All **100+ tests** pass cleanly.

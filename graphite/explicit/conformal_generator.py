@@ -537,6 +537,7 @@ def _generate_sc_modular_lattice(
         "surface_cage_profile": cage_profile,
         "surface_cage_width": cage_width,
         "surface_cage_thickness": cage_thickness,
+        "mesh": combined_lattice,
     }
 
 
@@ -956,6 +957,7 @@ def generate_conformal_lattice(
         "cyan_struts_count": len(cyan_struts),
         "red_struts_count": len(red_struts),
         "elapsed_time": elapsed_time,
+        "mesh": combined_lattice,
     }
     return result
 

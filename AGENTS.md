@@ -11,7 +11,9 @@ Conformal lattice R&D: repair shells, generate printable lattices (implicit TPMS
 | Kind | Default | Package |
 |------|---------|---------|
 | Explicit tet | A15 conformal Kagome | `graphite/explicit/` |
-| Explicit hex | Modular SC conformal (`rule_name`); Conformal Dual for Route-3 hex docs | `graphite/explicit/` (+ `legacy_gmsh` for archived dual APIs) |
+| Explicit hex | SC Nodal Conformation + Planar Slicing Surface Dual (`generate_nodal_conformation` / `generate_sc_conformal_lattice`) | `graphite/explicit/` |
+| Interlinked / PAM | Modular Cell Pipeline (`generate_interlinked_lattice(InterlinkedConfig(cell=...))`) | `graphite/explicit/interlinked/` |
+| Explicit Strut Joints | Clean Mitered Truss (`clean_miter=True` / `build_clean_miter_truss`) — no spherical bulges, no notched flat caps | `graphite/explicit/` |
 | Implicit | TPMS / Split-P / woodpile in `graphite/implicit/` | `graphite/implicit/` |
 | Implicit grading | Native field / piecewise / chirp / SF — **not** Aristo FEA remap | [docs/IMPLICIT_GRADING_AND_TEXTURES.md](docs/IMPLICIT_GRADING_AND_TEXTURES.md) |
 | Generated meshes | Write under `outputs/` only | never `test_parts/` |
@@ -32,6 +34,7 @@ Conformal lattice R&D: repair shells, generate printable lattices (implicit TPMS
 | CAD voxel / EDT / primitives | [graphite/geometry/README.md](graphite/geometry/README.md) |
 | TPMS scalar math only | [graphite/math/README.md](graphite/math/README.md) |
 | Mesh / STEP / INP export | [graphite/io/README.md](graphite/io/README.md) |
+| Interactive Trame + PyVista Studio & UI CLI | [graphite/ui/README.md](graphite/ui/README.md) |
 | Shared PyVista PNG framing | [graphite/viz/README.md](graphite/viz/README.md) |
 | 1 mm cube case study orchestration | [graphite/case_studies/README.md](graphite/case_studies/README.md) |
 | Archived GMSH scaffolders | [graphite/legacy_gmsh/README.md](graphite/legacy_gmsh/README.md) |
@@ -42,6 +45,9 @@ Conformal lattice R&D: repair shells, generate printable lattices (implicit TPMS
 
 - **One phase, then stop** with a reviewable file under `outputs/` (or a named runnable), unless the user explicitly says to continue or finish all todos.
 - **Never write generated STLs/reports into `test_parts/`.**
+- **Explicit Hex Standard:** All explicit hexahedral lattice requests MUST use the Nodal Conformation Bookend Pipeline (`generate_nodal_conformation` / `generate_conformal_lattice(..., lattice_type='SC')`) with Cartesian volume, outside-node boundary snapping, and Planar Slicing Contour Sweep surface dual. The old hex-cage morph in `conformal_generator.py` is archived legacy and must NEVER be used for production lattice generation.
+- **Interlinked / PAM Standard:** All interlinked, chainmail, and polycatenated metamaterial requests MUST use the unified modular engine `generate_interlinked_lattice(InterlinkedConfig(cell=...))` in `graphite/explicit/interlinked/`. Procedural generators in `pams.py` are legacy research adapters; do not write ad-hoc procedural lattice loops for new requests.
+- **Truss Joint Standard:** All explicit wireframe and truss lattice requests MUST use clean mitered joints (`clean_miter=True` / `build_clean_miter_truss`) with bisector-plane cut strut ends. Spherical fillet bulges (`add_spheres=True`) and raw flat cutoff notches (`clean_miter=False`) must not be used for production lattices unless explicitly requested.
 - Wrist rest / octahedral / surface dual / Nodal Conformation: read [docs/UNIVERSAL_DUAL_HANDOFF.md](docs/UNIVERSAL_DUAL_HANDOFF.md) before coding; do **not** rewrite `graphite/explicit/sc_trim_shared_edge_engine.py` (gold oracle).
 - **Architecture / Lattice changes:** Whenever an architectural, API, or lattice generation change is completed, run `python scripts/export_core_spec.py --check` and ensure [GRAPHITE_CORE_SPEC.md](GRAPHITE_CORE_SPEC.md) is updated.
 

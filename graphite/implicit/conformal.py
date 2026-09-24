@@ -122,7 +122,30 @@ def generate_conformal_lattice(
         tau_val = float(solid_fraction)
     solid_field = np.abs(F) - tau_val
 
+    # Pre-check whether input CAD mesh is a valid 2-manifold solid in Manifold3D.
+    # If the input CAD has non-manifold defects (e.g. boundary cracks, non-manifold edges),
+    # Manifold3D boolean operations will fail. In that scenario, we skip level-set dilation
+    # so that the mesh cleanly clips to the exact native implicit CAD boundary (cad_sdf == 0)
+    # rather than leaving unclipped dilated struts sticking out.
+    can_exact_trim = False
     if exact_cad_trim:
+        try:
+            import manifold3d
+            from graphite.explicit.geometry_module import trimesh_to_manifold
+            man_cad_check = trimesh_to_manifold(mesh)
+            if man_cad_check is not None and man_cad_check.status() == manifold3d.Error.NoError:
+                can_exact_trim = True
+            else:
+                status_str = man_cad_check.status() if man_cad_check else "None"
+                print(
+                    f"  [exact_cad_trim] Note: Input CAD '{stl_path.name}' is not 2-manifold in Manifold3D ({status_str}). "
+                    "Skipping level-set dilation to ensure smooth native implicit boundary clipping."
+                )
+        except Exception as exc:
+            print(f"  [exact_cad_trim] Note: CAD manifold check error ({exc}); skipping dilation.")
+            can_exact_trim = False
+
+    if can_exact_trim:
         dilation = float(trim_dilation_mm if trim_dilation_mm is not None else 3.0 * resolution)
         effective_cad_sdf = cad_sdf - dilation
     else:
@@ -190,17 +213,19 @@ def generate_conformal_lattice(
         raise ValueError("export_mode must be 'core', 'skin', or 'combined'")
 
     t0 = time.perf_counter()
+    # Note: enforce_watertight is explicitly False to preserve PyVista Flying Edges sub-voxel
+    # floating-point surface accuracy and avoid falling back to Trimesh's binary voxel rewrap.
     iso = extract_isosurface(
         final_field,
         spacing=(resolution, resolution, resolution),
         origin=padded_min_bound,
         level=0.0,
-        enforce_watertight=True,
+        enforce_watertight=False,
     )
     mesh_out = iso.mesh
     t_mc = time.perf_counter() - t0
 
-    if exact_cad_trim:
+    if can_exact_trim:
         t_trim = time.perf_counter()
         try:
             import manifold3d
@@ -210,6 +235,7 @@ def generate_conformal_lattice(
             if (
                 man_tpms is not None
                 and man_cad is not None
+                and man_tpms.status() == manifold3d.Error.NoError
                 and man_cad.status() == manifold3d.Error.NoError
             ):
                 man_trimmed = man_tpms ^ man_cad
@@ -219,6 +245,11 @@ def generate_conformal_lattice(
                 print(
                     f"  Exact B-Rep Boolean Trim: {len(mesh_out.faces):,} faces, "
                     f"watertight={mesh_out.is_watertight} in {t_trim_s:.2f}s"
+                )
+            else:
+                print(
+                    f"  Warning: exact_cad_trim skipped (tpms_status={man_tpms.status() if man_tpms else None}, "
+                    f"cad_status={man_cad.status() if man_cad else None}); retaining implicit isosurface."
                 )
         except Exception as exc:
             print(f"  Warning: exact_cad_trim failed ({exc}); retaining implicit isosurface.")

@@ -322,3 +322,27 @@ class TestGeometryGeneration:
         assert res.mesh.is_watertight
         assert res.volume > 0.0
         assert res.clearance_valid
+
+    def test_interlinked_preview_visual_hierarchy(self):
+        """Test that surface preview partitions into solid seed cell and connecting cells."""
+        from graphite.ui.surface_preview import generate_interlinked_preview
+        import pyvista as pv
+
+        pv_cad, pv_seed, pv_conn = generate_interlinked_preview(
+            shape="Cube",
+            size=20.0,
+            cell_type="c6tt",
+            seeding_type="cartesian",
+            pitch=8.0,
+            wire_radius=0.40,
+            min_clearance=0.35,
+            cull_margin=0.50,
+        )
+
+        assert isinstance(pv_cad, pv.PolyData)
+        assert pv_seed is not None
+        assert isinstance(pv_seed, pv.PolyData)
+        assert pv_seed.n_points > 0
+        assert pv_conn is not None
+        assert isinstance(pv_conn, pv.PolyData)
+        assert pv_conn.n_points > 0
