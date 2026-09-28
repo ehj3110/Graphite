@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 import trimesh
 from scipy.ndimage import distance_transform_edt
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from graphite.aristo.aristo_config import AristoConfig
 
@@ -73,13 +73,14 @@ def extract_isosurface(
     Extract zero-isosurface using Marching Cubes and convert to trimesh.Trimesh.
     """
     t0 = time.time()
-    verts, faces, normals, values = marching_cubes(
-        sdf_volume, level=isovalue, spacing=(pitch, pitch, pitch)
+    mc_mesh = extract_isosurface_flying_edges(
+        sdf_volume,
+        origin=origin,
+        spacing=(pitch, pitch, pitch),
+        level=isovalue,
     )
-    world_verts = verts + origin
-    mc_mesh = trimesh.Trimesh(vertices=world_verts, faces=faces, process=True)
     print(
-        f"  [MarchingCubes] Extracted clean surface ({len(mc_mesh.vertices)} verts, "
+        f"  [FlyingEdges] Extracted clean surface ({len(mc_mesh.vertices)} verts, "
         f"{len(mc_mesh.faces)} faces) in {time.time() - t0:.2f}s",
         flush=True
     )

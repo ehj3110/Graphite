@@ -13,12 +13,12 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
-
 from graphite.geometry.masking import voxelize_mesh_and_edt
 from graphite.implicit.density_control import tau_from_wall_thickness_mm
 from graphite.io.mesh_export import export_mesh
+from graphite.math.boolean import smooth_max, smooth_min
 from graphite.math.tpms import calculate_integrated_phase, evaluate_tpms_phase
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 
 COORDINATE_OPTIONS = (
@@ -576,6 +576,8 @@ def generate_field_driven_lattice(
     field_origin: np.ndarray | None = None,
     export_mode: str = "core",
     shell_thickness: float = 2.0,
+    blend_radius: float = 0.0,
+    blend_method: str = "polynomial",
     center_origin: bool = False,
     output_path: str | Path | None = None,
     export_formats: tuple[str, ...] | str | None = None,
@@ -740,28 +742,35 @@ def generate_field_driven_lattice(
     )
 
     core_sdf = np.maximum(np.abs(F) - tau_grid, cad_sdf)
-    skin_sdf = np.maximum(cad_sdf, -cad_sdf - float(shell_thickness))
+    if blend_radius > 0.0:
+        skin_sdf = smooth_max(
+            cad_sdf, -cad_sdf - float(shell_thickness), r=blend_radius, method=blend_method
+        )
+    else:
+        skin_sdf = np.maximum(cad_sdf, -cad_sdf - float(shell_thickness))
     mode = str(export_mode).lower()
     if mode == "core":
         final_field = core_sdf
     elif mode == "skin":
         final_field = skin_sdf
     elif mode == "combined":
-        final_field = np.minimum(core_sdf, skin_sdf)
+        if blend_radius > 0.0:
+            final_field = smooth_min(core_sdf, skin_sdf, r=blend_radius, method=blend_method)
+        else:
+            final_field = np.minimum(core_sdf, skin_sdf)
     else:
         raise ValueError("export_mode must be 'core', 'skin', or 'combined'")
 
     t0 = time.perf_counter()
-    verts, faces, _normals, _values = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=padded_min_bound,
         spacing=(float(resolution), float(resolution), float(resolution)),
+        level=0.0,
     )
     t_mc = time.perf_counter() - t0
-    verts = verts + padded_min_bound
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
-    if center_origin:
+    if center_origin and len(mesh_out.vertices) > 0:
         mesh_out.vertices -= mesh_out.centroid
 
     if output_path is not None:

@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
 import trimesh
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from graphite.aristo.volume_mesh_inspect import remove_floating_islands
 from graphite.case_studies.cube_1mm.specs import (
@@ -183,13 +183,12 @@ def _splitp_mesh_graded_box_single_pass(
     tpms_field = np.abs(F) - tau_voxel
     final_field = np.maximum(tpms_field, box_sdf)
 
-    verts, faces, _n, _v = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=grid_origin,
         spacing=spacing,
+        level=0.0,
     )
-    verts = verts + grid_origin
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
     meta = {
         "pipeline": (
             "analytic box SDF + linear L(z), tau(z) + "

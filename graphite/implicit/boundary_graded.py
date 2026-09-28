@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 from scipy.ndimage import distance_transform_edt as edt
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from graphite.geometry.masking import voxelize_mesh_and_edt
 from graphite.geometry.surface_picking import compute_face_surface_ids
@@ -190,16 +190,13 @@ def generate_boundary_graded_lattice(
     solid_field = np.abs(f) - SF_grid
     final_field = np.maximum(solid_field, cad_sdf)
 
-    verts, faces, _, _ = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=padded_min_bound,
         spacing=(resolution, resolution, resolution),
+        level=0.0,
     )
-
-    verts = (verts * resolution) + padded_min_bound
-
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
-    if center_origin:
+    if center_origin and len(mesh_out.vertices) > 0:
         mesh_out.vertices -= mesh_out.centroid
 
     if output_path is not None:

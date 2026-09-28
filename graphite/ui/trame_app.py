@@ -109,6 +109,7 @@ def create_app(server=None):
     state.fixture_options = fixtures
     state.lattice_options = list(SUPPORTED_TPMS_EQUATIONS)
     state.shelling_options = ["Core", "Skin", "Combined"]
+    state.blend_method_options = ["polynomial", "circular", "exponential"]
     state.grading_axes = ["Z", "X", "Y", "Radial"]
     state.grading_mode_options = ["Cell Size (Chirp)", "Solid Fraction (SF)"]
     state.texture_type_options = ["Microgrooves", "Bumps / Nodules", "Diamond Knurl", "Spinodal"]
@@ -179,6 +180,8 @@ def create_app(server=None):
     state.lattice_type = "Gyroid"
     state.export_mode = "Core"
     state.shell_thickness = 2.0
+    state.blend_radius = 0.0
+    state.blend_method = "polynomial"
     state.woodpile_invert = False
 
     # Explicit Strut state
@@ -1047,6 +1050,8 @@ def create_app(server=None):
                     wall_thickness_mm=wt,
                     export_mode=exp_mode,
                     shell_thickness=shell_t,
+                    blend_radius=float(state.blend_radius),
+                    blend_method=str(state.blend_method),
                     formats=tuple(req_formats),
                     enable_grading=grading,
                     grading_axis=axis,
@@ -1652,6 +1657,28 @@ def create_app(server=None):
                                         classes="mb-3",
                                     )
                                 with v3.VContainer(v_show="export_mode == 'Combined'", classes="px-0 py-0"):
+                                    v3.VTextField(
+                                        label="Blend Radius (mm)",
+                                        type="number",
+                                        v_model=("blend_radius", 0.0),
+                                        hint="Smooth Boolean fillet between core lattice and skin (0.0 = sharp union)",
+                                        persistent_hint=True,
+                                        color="#0FA4AF",
+                                        base_color="#AFDDE5",
+                                        density="comfortable",
+                                        variant="outlined",
+                                        classes="mb-3",
+                                    )
+                                    v3.VSelect(
+                                        label="Blend Method",
+                                        items=("blend_method_options",),
+                                        v_model=("blend_method", "polynomial"),
+                                        color="#0FA4AF",
+                                        base_color="#AFDDE5",
+                                        density="comfortable",
+                                        variant="outlined",
+                                        classes="mb-3",
+                                    )
                                     v3.VCheckbox(
                                         label="Preview Cutaway Section (Inspect Core)",
                                         v_model=("show_cutaway", False),

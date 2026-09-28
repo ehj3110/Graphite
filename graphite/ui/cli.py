@@ -62,6 +62,8 @@ def run_headless_recipe(
     wall_thickness_mm: float | None = None,
     export_mode: str = "core",
     shell_thickness: float = 2.0,
+    blend_radius: float = 0.0,
+    blend_method: str = "polynomial",
     formats: str | tuple[str, ...] = "stl",
     enable_grading: bool = False,
     grading_axis: str = "Z",
@@ -495,6 +497,8 @@ def run_headless_recipe(
                     base_wall_thickness_mm=wall_thickness_mm or 0.5,
                     export_mode=export_mode,
                     shell_thickness=shell_thickness,
+                    blend_radius=float(blend_radius),
+                    blend_method=str(blend_method),
                     output_path=out_p,
                     export_formats=export_formats_tuple,
                 )
@@ -529,6 +533,8 @@ def run_headless_recipe(
                 tau=tau_val,
                 export_mode=export_mode,
                 shell_thickness=shell_thickness,
+                blend_radius=float(blend_radius),
+                blend_method=str(blend_method),
                 output_path=out_p,
                 export_formats=export_formats_tuple,
             )
@@ -584,6 +590,8 @@ def run_headless_recipe(
             "wall_thickness_mm": wall_thickness_mm,
             "export_mode": export_mode,
             "shell_thickness_mm": shell_thickness,
+            "blend_radius_mm": float(blend_radius),
+            "blend_method": str(blend_method),
             "formats": list(export_formats_tuple),
             "enable_grading": enable_grading,
             "grading_axis": grading_axis if enable_grading else None,
@@ -735,6 +743,19 @@ def main() -> None:
     )
     parser.add_argument("--shell-thickness", type=float, default=2.0, help="Outer shell thickness in mm")
     parser.add_argument(
+        "--blend-radius",
+        type=float,
+        default=0.0,
+        help="Smooth Boolean blend radius in mm (for combined export mode, 0.0 = sharp union)",
+    )
+    parser.add_argument(
+        "--blend-method",
+        type=str,
+        default="polynomial",
+        choices=["polynomial", "circular", "exponential"],
+        help="Smooth Boolean blending formulation",
+    )
+    parser.add_argument(
         "--formats",
         type=str,
         default="stl",
@@ -801,6 +822,8 @@ def main() -> None:
             wall_thickness_mm=args.wall_thickness,
             export_mode=args.export_mode,
             shell_thickness=args.shell_thickness,
+            blend_radius=args.blend_radius,
+            blend_method=args.blend_method,
             formats=args.formats,
             enable_grading=args.grading,
             grading_axis=args.grading_axis,

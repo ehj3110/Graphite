@@ -681,9 +681,9 @@ def realize_optimized_tpms_lattice(
         The smoothed, watertight 3D printable lattice surface mesh.
     """
     from scipy.interpolate import NearestNDInterpolator
-    from skimage.measure import marching_cubes
     import trimesh
     from graphite.math.tpms import evaluate_tpms
+    from graphite.mesh.extraction import extract_isosurface_flying_edges
     from graphite.mesh.smoothing import smooth_mesh_taubin
 
     mesh = result.mesh
@@ -722,10 +722,13 @@ def realize_optimized_tpms_lattice(
         (max_b[1] - min_b[1]) / (ny - 1),
         (max_b[2] - min_b[2]) / (nz - 1),
     )
-    verts, faces, _, _ = marching_cubes(sdf_part, level=0.0, spacing=spacing)
-    verts += min_b
+    tri_mesh = extract_isosurface_flying_edges(
+        field=sdf_part,
+        origin=min_b,
+        spacing=spacing,
+        level=0.0,
+    )
 
-    tri_mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=True)
 
     # Apply Taubin non-shrinking smoothing
     if taubin_iterations > 0:

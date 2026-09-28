@@ -16,7 +16,7 @@ from typing import Sequence
 
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from graphite.explicit.geometry_module import _trimesh_to_manifold, manifold_to_trimesh
 from graphite.geometry.masking import (
@@ -321,14 +321,13 @@ def woodpile_piecewise_cylinder_single_pass(
     final_field = np.maximum(woodpile_field, cad_sdf)
 
     t0 = time.perf_counter()
-    verts, faces, _n, _v = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=padded_min_bound,
         spacing=(float(resolution_mm),) * 3,
+        level=0.0,
     )
     mc_s = time.perf_counter() - t0
-    verts = verts + padded_min_bound
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
     mode = "true_woodpile" if true_woodpile else "cross_hatch"
     report: dict = {
@@ -432,14 +431,13 @@ def woodpile_piecewise_box_single_pass(
     final_field = np.maximum(woodpile_field, box_sdf)
 
     t0 = time.perf_counter()
-    verts, faces, _n, _v = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=grid_origin,
         spacing=spacing,
+        level=0.0,
     )
     mc_s = time.perf_counter() - t0
-    verts = verts + grid_origin
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
     mode = "true_woodpile" if true_woodpile else "cross_hatch"
     report: dict = {

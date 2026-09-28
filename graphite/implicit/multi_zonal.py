@@ -7,7 +7,7 @@ This module generates conformal TPMS lattices that feature discrete zones
 """
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from pathlib import Path
 
@@ -111,17 +111,14 @@ def generate_multi_zonal_lattice(
     # Max intersection since both solid_field and cad_sdf follow inside<=0
     final_field = np.maximum(final_solid_field, cad_sdf)
 
-    verts, faces, _normals, _values = marching_cubes(
-        final_field, level=0.0, spacing=(resolution, resolution, resolution)
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=padded_min_bound,
+        spacing=(resolution, resolution, resolution),
+        level=0.0,
     )
 
-    verts[:, 0] += padded_min_bound[0]
-    verts[:, 1] += padded_min_bound[1]
-    verts[:, 2] += padded_min_bound[2]
-
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
-
-    if center_origin:
+    if center_origin and len(mesh_out.vertices) > 0:
         mesh_out.vertices -= mesh_out.centroid
 
     if output_path:

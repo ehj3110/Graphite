@@ -15,7 +15,7 @@ import numpy as np
 import trimesh
 from scipy.interpolate import RegularGridInterpolator
 from scipy.ndimage import distance_transform_edt as edt
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from graphite.geometry.masking import voxelize_mesh_and_edt
 from graphite.io.mesh_export import export_mesh
@@ -141,19 +141,17 @@ def generate_chirped_lattice(
     final_field = np.maximum(solid_field, cad_sdf)
 
     t0 = time.perf_counter()
-    verts, faces, _, _ = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        field=final_field,
+        origin=padded_min_bound,
         spacing=(resolution, resolution, resolution),
+        level=0.0,
     )
     t_mc = time.perf_counter() - t0
 
-    verts = (verts * resolution) + padded_min_bound
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
+    if center_origin and len(mesh_out.vertices) > 0:
+        mesh_out.vertices -= mesh_out.centroid
 
-    if center_origin:
-        verts -= mesh_out.centroid
-        mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
 
     if output_path is not None:
         export_mesh(mesh_out, Path(output_path), formats=export_formats)

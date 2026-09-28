@@ -14,7 +14,7 @@ from typing import Sequence
 
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
+from graphite.mesh.extraction import extract_isosurface_flying_edges
 
 from graphite.geometry.masking import (
     axis_aligned_box_grid,
@@ -136,13 +136,12 @@ def splitp_piecewise_cylinder_single_pass(
     F = evaluate_tpms_phase(lattice_type, U, V, W_phase)
     final_field = np.maximum(np.abs(F) - tau_voxel, cad_sdf)
 
-    verts, faces, _n, _v = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=padded_min_bound,
         spacing=(resolution_mm, resolution_mm, resolution_mm),
+        level=0.0,
     )
-    verts = verts + padded_min_bound
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
     meta = {
         "pipeline": "full-cylinder EDT + piecewise L/tau; single pass",
         "combine_method": "single_pass_implicit",
@@ -223,13 +222,12 @@ def splitp_piecewise_box_single_pass(
     F = evaluate_tpms_phase(lattice_type, U, V, W_phase)
     final_field = np.maximum(np.abs(F) - tau_voxel, box_sdf)
 
-    verts, faces, _n, _v = marching_cubes(
-        final_field.astype(np.float32),
-        level=0.0,
+    mesh_out = extract_isosurface_flying_edges(
+        final_field,
+        origin=grid_origin,
         spacing=spacing,
+        level=0.0,
     )
-    verts = verts + grid_origin
-    mesh_out = trimesh.Trimesh(vertices=verts, faces=faces.astype(np.int64), process=True)
     meta = {
         "pipeline": "analytic box SDF + piecewise L/tau; single pass",
         "boundary_sdf": "analytic_box",
