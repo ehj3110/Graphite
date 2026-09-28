@@ -11,6 +11,8 @@ Shared TPMS / phase / texture / woodpile **scalar-field math** (no meshing, no F
 ## Public entrypoints
 
 - `evaluate_tpms`, `evaluate_tpms_phase`, `calculate_integrated_phase`
+- `generate_spinodal_wavevectors`, `evaluate_spinodal_field`, `threshold_spinodal_field`
+- `smooth_min`, `smooth_max`, `smooth_difference` (R-functions for $C^1/C^2$ smooth level-set blending)
 - Named fields: `gyroid`, `schwarz_p`, `split_p`, `bump_field`, `knurl_field`, `spinodal_spectral_field`, `triplanar_map`
 - Woodpile helpers: `evaluate_woodpile`, `compute_woodpile_xy_origin`
 

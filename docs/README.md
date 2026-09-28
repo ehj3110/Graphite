@@ -60,6 +60,8 @@ Open these only when the task matches the sprint. Prefer the package card first.
 | [STREAMLIT_REVAMP.md](STREAMLIT_REVAMP.md) | UI revamp plan (**not implemented**) |
 | [OUTPUTS_MODELS_CLEANUP_HANDOFF.md](OUTPUTS_MODELS_CLEANUP_HANDOFF.md) | `outputs/models/` cleanup guardrails |
 | [PRUSA_SPOOL_CAPS_CATALOG.md](PRUSA_SPOOL_CAPS_CATALOG.md) | Prusa Core One contest spool caps (150 models, parameters, previews, reproduction guide) |
+| [SPINODAL_FLYING_EDGES_TAUBIN_HANDOFF.md](SPINODAL_FLYING_EDGES_TAUBIN_HANDOFF.md) | Spinodal GRF, Flying Edges extraction, and volume-preserving Taubin smoothing handoff |
+| [SMOOTH_BOOLEAN_R_FUNCTIONS_HANDOFF.md](SMOOTH_BOOLEAN_R_FUNCTIONS_HANDOFF.md) | Smooth Boolean Operators (R-functions) & implicit skin blending handoff |
 
 ### Explicit dual / SC lab (open one version, not all)
 

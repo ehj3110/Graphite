@@ -72,8 +72,11 @@ from graphite.implicit.micropillars import (
     sample_pillar_anchors,
     segment_cad_boundary,
 )
+from graphite.implicit.blending import blend_lattice_with_skin
+from graphite.implicit.spinodal import generate_spinodal_lattice
 
 __all__ = [
+    "blend_lattice_with_skin",
     "CrossSectionalPoreSizeResult",
     "EffectivePoreSizeResult",
     "MaxInscribedSphereResult",
@@ -121,6 +124,7 @@ __all__ = [
     "subdivide_for_texture",
     "MicropillarConfig",
     "generate_micropillars",
+    "generate_spinodal_lattice",
     "sample_pillar_anchors",
     "segment_cad_boundary",
 ]

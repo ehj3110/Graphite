@@ -270,6 +270,15 @@ class C6TTCell:
         d = float(strut_diameter)
         return float((tc + d) / self.CLEARANCE_KAPPA)
 
+    def habit_plane_aperture(self, plane: str = "100", size: float = 8.0) -> float:
+        """Internal clearance aperture diameter (mm) along specified habit plane."""
+        # For C-6-TT, the hexagonal window diameter is (2/3) * size * sqrt(2)
+        return float((2.0 / 3.0) * float(size) * np.sqrt(2.0))
+
+    def habit_plane_profile(self, plane: str = "100", size: float = 8.0) -> float:
+        """External cross-sectional profile diameter (mm) along specified habit plane."""
+        return float(float(size) * np.sqrt(2.0))
+
     def instantiate_site(
         self,
         grid_index: tuple[int, int, int],

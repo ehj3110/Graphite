@@ -18,6 +18,7 @@ from graphite.geometry.masking import voxelize_mesh_and_edt
 from graphite.implicit.density_control import tau_from_wall_thickness_mm
 from graphite.implicit.meshing_backends import extract_isosurface
 from graphite.io.mesh_export import export_mesh
+from graphite.math.boolean import smooth_max, smooth_min
 from graphite.math.tpms import evaluate_tpms
 
 
@@ -53,6 +54,8 @@ def generate_conformal_lattice(
     tau: float | None = None,
     rotation_deg: tuple[float, float, float] | None = None,
     micropillar_config: Any | None = None,
+    blend_radius: float = 0.0,
+    blend_method: str = "polynomial",
 ) -> trimesh.Trimesh:
     """
     Generate a conformal TPMS lattice inside an input STL using EDT-based CAD SDF.
@@ -87,6 +90,12 @@ def generate_conformal_lattice(
         globally. By default None.
     output_path : str or Path, optional
         Optional path to write the resulting mesh, by default None.
+    blend_radius : float, optional
+        Radius of the smooth fillet at lattice-boundary and lattice-skin junctions in mm.
+        Default is 0.0 (sharp Boolean).
+    blend_method : str, optional
+        Smooth blending formulation: 'polynomial', 'circular', or 'exponential'.
+        Default is "polynomial".
 
     Returns
     -------
@@ -151,7 +160,10 @@ def generate_conformal_lattice(
     else:
         effective_cad_sdf = cad_sdf
 
-    core_sdf = np.maximum(solid_field, effective_cad_sdf)
+    if blend_radius > 0.0:
+        core_sdf = smooth_max(solid_field, effective_cad_sdf, r=blend_radius, method=blend_method)
+    else:
+        core_sdf = np.maximum(solid_field, effective_cad_sdf)
 
     if selected_surfaces is not None and len(selected_surfaces) > 0:
         facets = mesh.facets
@@ -199,16 +211,29 @@ def generate_conformal_lattice(
         surface_mask[ix, iy, iz] = True
         distance_to_surface = edt(~surface_mask) * resolution
 
-        skin_sdf = np.maximum(cad_sdf, distance_to_surface - shell_thickness)
+        if blend_radius > 0.0:
+            skin_sdf = smooth_max(
+                cad_sdf, distance_to_surface - shell_thickness, r=blend_radius, method=blend_method
+            )
+        else:
+            skin_sdf = np.maximum(cad_sdf, distance_to_surface - shell_thickness)
     else:
-        skin_sdf = np.maximum(cad_sdf, -cad_sdf - shell_thickness)
+        if blend_radius > 0.0:
+            skin_sdf = smooth_max(
+                cad_sdf, -cad_sdf - shell_thickness, r=blend_radius, method=blend_method
+            )
+        else:
+            skin_sdf = np.maximum(cad_sdf, -cad_sdf - shell_thickness)
 
     if export_mode == "core":
         final_field = core_sdf
     elif export_mode == "skin":
         final_field = skin_sdf
     elif export_mode == "combined":
-        final_field = np.minimum(core_sdf, skin_sdf)
+        if blend_radius > 0.0:
+            final_field = smooth_min(core_sdf, skin_sdf, r=blend_radius, method=blend_method)
+        else:
+            final_field = np.minimum(core_sdf, skin_sdf)
     else:
         raise ValueError("export_mode must be 'core', 'skin', or 'combined'")
 

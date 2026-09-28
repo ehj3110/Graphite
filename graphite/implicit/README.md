@@ -14,9 +14,10 @@ Typical imports (see package modules / `__init__`):
 
 - `calibrate_tpms_point`, `calibrate_tpms_gradient_profile`
 - `extract_isosurface`
+- `blend_lattice_with_skin` (smooth fillet union between implicit lattices and CAD skin)
 - `splitp_piecewise_box_single_pass`, `woodpile_piecewise_box_single_pass`, `build_piecewise_woodpile_mesh`
 - `compute_max_inscribed_sphere_pore_size`, `generate_micropillars`
-- Generators: `generate_conformal_lattice`, `generate_graded_lattice`, `generate_field_driven_lattice` (implicit modules)
+- Generators: `generate_conformal_lattice`, `generate_spinodal_lattice`, `generate_graded_lattice`, `generate_field_driven_lattice` (implicit modules)
 
 ## Does not own
 

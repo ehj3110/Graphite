@@ -56,6 +56,9 @@ def export_seed_cell_stl(
     pitch: float,
     wire_radius: float,
     output_path: Path | str,
+    size_ratio: float | None = None,
+    clean_miter: bool = True,
+    circular_segments: int = 24,
 ) -> Path:
     """
     Generate a single central seed particle at origin [0, 0, 0] for `cell_key`
@@ -72,6 +75,12 @@ def export_seed_cell_stl(
         Strut or wire cross-sectional radius in mm.
     output_path : Path | str
         Destination file path for binary STL export.
+    size_ratio : float | None
+        Optional cage size ratio (s / a0) for scalable polyhedral cells (e.g. C-6-TT).
+    clean_miter : bool
+        If True, solidifies wireframe trusses with clean mitered bisector planes.
+    circular_segments : int
+        Cross-sectional radial discretization.
 
     Returns
     -------
@@ -79,7 +88,14 @@ def export_seed_cell_stl(
         Path to the exported binary STL file.
     """
     cell_cls = InterlinkedRegistry.get(cell_key)
-    cell = cell_cls()
+    if size_ratio is not None:
+        try:
+            cell = cell_cls(size_ratio=float(size_ratio))
+        except TypeError:
+            cell = cell_cls()
+    else:
+        cell = cell_cls()
+
     particles = cell.instantiate_site(
         grid_index=(0, 0, 0),
         site_origin=np.zeros(3, dtype=np.float64),
@@ -95,16 +111,123 @@ def export_seed_cell_stl(
     seed_idx = int(np.argmin(dists))
     seed_particle = particles[seed_idx]
 
-    # Solidify using standard prototype instancing
-    mesh = _particles_to_combined_mesh([seed_particle], wire_radius=float(wire_radius))
-    if mesh is None or len(mesh.faces) == 0:
-        mesh = solidify_particle_prototype(seed_particle.geometry, strut_radius=float(wire_radius))
-        if not np.allclose(seed_particle.transform[:3, :3], np.eye(3)):
-            mesh.apply_transform(seed_particle.transform)
+    # Solidify with clean miter if wireframe truss
+    g = seed_particle.geometry
+    if clean_miter and len(g.nodes) > 0 and len(g.struts) > 0 and g.geometry_type.lower() not in ("ring", "torus"):
+        mesh = build_clean_miter_truss(
+            g.nodes,
+            g.struts,
+            float(wire_radius),
+            circular_segments=circular_segments,
+        )
+    else:
+        mesh = _particles_to_combined_mesh([seed_particle], wire_radius=float(wire_radius))
+        if mesh is None or len(mesh.faces) == 0:
+            mesh = solidify_particle_prototype(seed_particle.geometry, strut_radius=float(wire_radius), circular_segments=circular_segments)
+            if not np.allclose(seed_particle.transform[:3, :3], np.eye(3)):
+                mesh.apply_transform(seed_particle.transform)
 
     out_p = Path(output_path)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(str(out_p), file_type="stl")
+    return out_p
+
+
+def export_seed_cell_reference_cluster_stl(
+    cell_key: str,
+    pitch: float,
+    wire_radius: float,
+    output_path: Path | str,
+    size_ratio: float | None = None,
+    clean_miter: bool = True,
+    circular_segments: int = 16,
+) -> Path:
+    """
+    Export a reference cluster (central seed particle + immediate catenated neighbor particles)
+    as a multi-body STL so the user can inspect clearance gaps and open support corridors.
+
+    Parameters
+    ----------
+    cell_key : str
+        Canonical cell identifier (e.g. 'c6tt', 'd4tet').
+    pitch : float
+        Unit cell pitch in mm.
+    wire_radius : float
+        Strut radius in mm.
+    output_path : Path | str
+        Destination file path for reference STL export.
+    size_ratio : float | None
+        Optional cage size ratio.
+    clean_miter : bool
+        If True, uses clean mitered bisector planes.
+    circular_segments : int
+        Cross-sectional discretization resolution.
+
+    Returns
+    -------
+    Path
+        Path to the exported reference multi-body STL.
+    """
+    cell_cls = InterlinkedRegistry.get(cell_key)
+    if size_ratio is not None:
+        try:
+            cell = cell_cls(size_ratio=float(size_ratio))
+        except TypeError:
+            cell = cell_cls()
+    else:
+        cell = cell_cls()
+
+    # Center site
+    center_particles = cell.instantiate_site(
+        grid_index=(0, 0, 0),
+        site_origin=np.zeros(3, dtype=np.float64),
+        cell_pitch=float(pitch),
+        id_start=0,
+    )
+    all_particles: list[InterlinkedParticle] = list(center_particles)
+
+    # Neighbor sites from cell contract or Cartesian 6-offsets
+    offsets = getattr(cell, "neighbor_catenation_offsets", [
+        (1, 0, 0), (-1, 0, 0),
+        (0, 1, 0), (0, -1, 0),
+        (0, 0, 1), (0, 0, -1),
+    ])
+
+    cur_id = len(all_particles)
+    for off in offsets:
+        site_origin = np.array(off, dtype=np.float64) * float(pitch)
+        nb_particles = cell.instantiate_site(
+            grid_index=tuple(off),
+            site_origin=site_origin,
+            cell_pitch=float(pitch),
+            id_start=cur_id,
+        )
+        all_particles.extend(nb_particles)
+        cur_id += len(nb_particles)
+
+    # Solidify all particles
+    p0 = all_particles[0]
+    g0 = p0.geometry
+    if clean_miter and len(g0.nodes) > 0 and len(g0.struts) > 0 and g0.geometry_type.lower() not in ("ring", "torus"):
+        proto_mesh = build_clean_miter_truss(
+            g0.nodes,
+            g0.struts,
+            float(wire_radius),
+            circular_segments=circular_segments,
+        )
+        meshes = []
+        for p in all_particles:
+            m = proto_mesh.copy()
+            # Apply SE(3) transform
+            m.apply_transform(p.transform)
+            meshes.append(m)
+        combined = trimesh.util.concatenate(meshes)
+    else:
+        combined = _particles_to_combined_mesh(all_particles, wire_radius=float(wire_radius), circular_segments=circular_segments)
+
+    out_p = Path(output_path)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    combined.export(str(out_p), file_type="stl")
     return out_p
 
 

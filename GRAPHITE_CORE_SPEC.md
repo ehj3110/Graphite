@@ -463,6 +463,139 @@ class ExportResult:
     health_report: MeshHealthReport | None = None
 ```
 
+#### `RVEGridConfig`, `EngineeringConstants` & `HomogenizationResult`
+*Module:* [`graphite.fea.homogenization`](graphite/fea/homogenization.py)
+```python
+@dataclass(frozen=True)
+class RVEGridConfig:
+    resolution: int = 32
+    cell_size: float = 1.0
+    base_E: float = 2000.0
+    base_nu: float = 0.35
+    ersatz_ratio: float = 1e-6
+    solver_backend: Literal["auto", "direct", "cg"] = "cg"
+    solver_tol: float = 1e-6
+    max_iter: int = 2000
+
+@dataclass
+class EngineeringConstants:
+    E_x: float
+    E_y: float
+    E_z: float
+    G_xy: float
+    G_yz: float
+    G_zx: float
+    nu_xy: float
+    nu_yx: float
+    nu_xz: float
+    nu_zx: float
+    nu_yz: float
+    nu_zy: float
+    bulk_modulus: float
+    zener_anisotropy: float
+
+@dataclass
+class HomogenizationResult:
+    C_homogenized: np.ndarray  # shape: (6, 6), dtype: float64
+    compliance: np.ndarray     # shape: (6, 6), dtype: float64
+    solid_fraction: float
+    engineering_constants: EngineeringConstants
+    solve_time_s: float
+    solver_used: str
+    iterations: list[int]
+```
+
+#### `SurrogateCalibrationPoint` & `MaterialTensorSurrogate`
+*Module:* [`graphite.fea.surrogate`](graphite/fea/surrogate.py)
+```python
+@dataclass
+class SurrogateCalibrationPoint:
+    param_value: float
+    solid_fraction: float
+    C_tensor: np.ndarray  # shape: (6, 6), dtype: float64
+    constants: EngineeringConstants
+
+@dataclass
+class MaterialTensorSurrogate:
+    param_name: str
+    param_range: tuple[float, float]
+    sample_points: list[SurrogateCalibrationPoint]
+    symmetry_type: Literal["cubic", "orthotropic", "anisotropic"] = "cubic"
+    fitting_method: Literal["pchip", "cubic", "power_law"] = "pchip"
+
+    def evaluate_material_tensor(self, param: float | np.ndarray) -> np.ndarray: ...
+    def evaluate_engineering_constants(self, param: float | np.ndarray) -> dict[str, np.ndarray | float]: ...
+    def save(self, filepath: str | Path) -> None: ...
+    @classmethod
+    def load(cls, filepath: str | Path) -> MaterialTensorSurrogate: ...
+```
+
+#### `MacroMesh` & `TwoScaleFEAResult`
+*Module:* [`graphite.fea.aristo_bridge`](graphite/fea/aristo_bridge.py)
+```python
+@dataclass
+class MacroMesh:
+    nodes: np.ndarray             # shape: (N, 3), dtype: float64 (mm)
+    elements: np.ndarray          # shape: (M, 4) for tet4 or (M, 8) for hex8, dtype: int64
+    elem_type: Literal["tet4", "hex8"] = "tet4"
+    element_centroids: np.ndarray # shape: (M, 3), dtype: float64
+    element_volumes: np.ndarray   # shape: (M,), dtype: float64 (mm³)
+
+@dataclass
+class TwoScaleFEAResult:
+    mesh: MacroMesh
+    displacements: np.ndarray     # shape: (N, 3), dtype: float64 (mm)
+    element_strains: np.ndarray   # shape: (M, 6), dtype: float64 (Voigt [xx, yy, zz, xy, yz, xz])
+    element_stresses: np.ndarray  # shape: (M, 6), dtype: float64 (MPa)
+    element_von_mises: np.ndarray # shape: (M,), dtype: float64 (MPa)
+    nodal_von_mises: np.ndarray   # shape: (N,), dtype: float64 (MPa)
+    compliance_energy: float      # 0.5 * u^T F (mJ)
+    max_displacement: float       # max ||u_i|| (mm)
+    max_von_mises: float          # max element VM (MPa)
+    assembly_time_s: float
+    solve_time_s: float
+    solver_used: str
+    grading_values: np.ndarray    # shape: (M,), dtype: float64
+
+#### `StressAdaptationConfig`, `OptimizationIterationRecord` & `TwoScaleOptimizationResult`
+*Module:* [`graphite.fea.stress_adaptation`](graphite/fea/stress_adaptation.py)
+```python
+@dataclass
+class StressAdaptationConfig:
+    target_stress: float = 50.0
+    target_volume_fraction: float | None = None
+    relaxation_eta: float = 0.35
+    move_limit: float = 0.10
+    min_density: float = 0.10
+    max_density: float = 0.60
+    max_iterations: int = 30
+    convergence_tol: float = 1e-3
+    filter_radius: float = 0.0
+
+@dataclass
+class OptimizationIterationRecord:
+    iteration: int
+    compliance: float
+    max_von_mises: float
+    mean_von_mises: float
+    volume_fraction: float
+    max_delta_phi: float
+    solve_time_s: float
+
+@dataclass
+class TwoScaleOptimizationResult:
+    mesh: MacroMesh
+    optimal_densities: np.ndarray        # shape: (M,), dtype: float64
+    initial_densities: np.ndarray        # shape: (M,), dtype: float64
+    final_fea_result: TwoScaleFEAResult
+    history: list[OptimizationIterationRecord]
+    total_time_s: float
+    iterations_completed: int
+    converged: bool
+    config: StressAdaptationConfig
+```
+
+
 ---
 
 ## 3. Abstract Base Protocols & Functional Signatures
@@ -577,6 +710,123 @@ Canonical TPMS Functions in [`graphite.math.tpms`](graphite/math/tpms.py):
 
 where \(k = \frac{2\pi}{L}\).
 
+#### Gaussian Random Field (GRF) Spinodal Decomposition in [`graphite.math.spinodal`](graphite/math/spinodal.py):
+Superposition of \(N\) standing cosine waves:
+$$F(\mathbf{x}) = \sqrt{\frac{2}{N}} \sum_{i=1}^{N} \cos\left(\mathbf{k}_i \cdot \mathbf{x} + \phi_i\right)$$
+where \(\phi_i \sim \mathcal{U}(0, 2\pi)\), \(\mathbf{k}_i = k_0 \frac{\mathbf{A}\hat{\mathbf{n}}_i}{\|\mathbf{A}\hat{\mathbf{n}}_i\|}\) (\(k_0 = \frac{2\pi}{\lambda}\)), and \(\hat{\mathbf{n}}_i \in S^2\) sampled via Marsaglia's (1972) method.
+
+Analytic solid volume fraction thresholding (\(\text{solid} \iff \text{solid\_field} \le 0\)):
+- **Skeletal / Network Topology (`is_sheet=False`):**
+  $$t = \sqrt{2} \cdot \operatorname{erf}^{-1}(2\phi - 1), \quad \text{solid\_field}(\mathbf{x}) = F(\mathbf{x}) - t$$
+- **Sheet / Lamellar Topology (`is_sheet=True`):**
+  $$t_{\text{sheet}} = \sqrt{2} \cdot \operatorname{erf}^{-1}(\phi), \quad \text{solid\_field}(\mathbf{x}) = |F(\mathbf{x})| - t_{\text{sheet}}$$
+
+Signatures:
+```python
+def generate_spinodal_wavevectors(
+    num_waves: int,
+    wavelength: float,
+    anisotropy: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    seed: int | None = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate wavevectors (num_waves, 3) float64 and phases (num_waves,) float64."""
+
+def evaluate_spinodal_field(
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+    wavelength: float,
+    num_waves: int = 120,
+    anisotropy: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    seed: int | None = 42,
+) -> np.ndarray:
+    """Evaluate F(x) ~ N(0, 1) in-place in float32 without 4D intermediate tensors."""
+
+def threshold_spinodal_field(
+    F: np.ndarray,
+    solid_fraction: float,
+    is_sheet: bool = False,
+) -> np.ndarray:
+    """Analytically threshold standard normal field to exact target solid fraction."""
+```
+
+#### `generate_spinodal_lattice`
+*Module:* [`graphite.implicit.spinodal`](graphite/implicit/spinodal.py)
+```python
+def generate_spinodal_lattice(
+    cad_mesh: trimesh.Trimesh | str | Path,
+    resolution: float = 0.25,
+    wavelength: float = 2.0,
+    solid_fraction: float = 0.3,
+    is_sheet: bool = False,
+    anisotropy: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    num_waves: int = 120,
+    seed: int | None = 42,
+    pad_width: int = 4,
+    output_path: str | Path | None = None,
+    taubin_iterations: int = 15,
+    taubin_lamb: float = 0.5,
+    taubin_nu: float = -0.53,
+    blend_radius: float = 0.0,
+    blend_method: str = "polynomial",
+) -> trimesh.Trimesh:
+    """Generate conformal Gaussian Random Field (GRF) spinodal lattice inside CAD geometry."""
+```
+
+#### Smooth Boolean Operators (R-Functions) in [`graphite.math.boolean`](graphite/math/boolean.py):
+Provides $C^1$ and $C^2$ continuous smooth blending operations for implicit level sets (where solid material is defined by $\{x \mid f(x) \le 0\}$).
+
+Mathematical formulations:
+- **Smooth Minimum (Union)**: $\operatorname{smin}(a, b, r)$
+  - *Polynomial ($C^1$)*:
+    $$h = \operatorname{clip}\left(0.5 + 0.5 \frac{b - a}{r}, 0, 1\right), \quad \operatorname{smin}_{\text{poly}} = a h + b(1 - h) - r h (1 - h)$$
+  - *Circular ($C^1$ fillet)*:
+    $$h = \operatorname{clip}\left(\frac{r - |a - b|}{r}, 0, 1\right), \quad \operatorname{smin}_{\text{circ}} = \min(a, b) - 0.5 r \left(1 - \sqrt{\max(1 - h^2, 0)}\right)$$
+  - *Exponential ($C^\infty$ LogSumExp)*:
+    $$\operatorname{smin}_{\text{exp}} = \min(a, b) - r \operatorname{log1p}\left(e^{-\frac{|a - b|}{r}}\right)$$
+- **Smooth Maximum (Intersection)**: $\operatorname{smax}(a, b, r) = -\operatorname{smin}(-a, -b, r)$
+- **Smooth Difference**: $\operatorname{smooth\_difference}(a, b, r) = \operatorname{smax}(a, -b, r)$
+
+Signatures:
+```python
+def smooth_min(
+    a: float | np.ndarray,
+    b: float | np.ndarray,
+    r: float,
+    method: str = "polynomial",
+) -> float | np.ndarray:
+    """Smooth union operator for level-set fields (solid <= 0)."""
+
+def smooth_max(
+    a: float | np.ndarray,
+    b: float | np.ndarray,
+    r: float,
+    method: str = "polynomial",
+) -> float | np.ndarray:
+    """Smooth intersection operator for level-set fields (solid <= 0)."""
+
+def smooth_difference(
+    a: float | np.ndarray,
+    b: float | np.ndarray,
+    r: float,
+    method: str = "polynomial",
+) -> float | np.ndarray:
+    """Smooth difference operator (A \\ B) for level-set fields (solid <= 0)."""
+```
+
+#### `blend_lattice_with_skin`
+*Module:* [`graphite.implicit.blending`](graphite/implicit/blending.py)
+```python
+def blend_lattice_with_skin(
+    lattice_field: np.ndarray,
+    cad_sdf: np.ndarray,
+    skin_thickness: float,
+    blend_radius: float = 0.0,
+    method: str = "polynomial",
+) -> np.ndarray:
+    """Smoothly blend interior implicit lattice field with an exterior CAD skin."""
+```
+
 ### 3.5 Meshing & Geometry Synthesis Routines
 
 #### `extract_isosurface`
@@ -594,6 +844,241 @@ def extract_isosurface(
 ) -> IsosurfaceExtractionResult:
     """Extract an isosurface mesh from a 3D scalar field."""
 ```
+
+#### `extract_isosurface_flying_edges`
+*Module:* [`graphite.mesh.extraction`](graphite/mesh/extraction.py)
+```python
+def extract_isosurface_flying_edges(
+    field: np.ndarray,
+    origin: tuple[float, float, float] | Sequence[float],
+    spacing: tuple[float, float, float] | Sequence[float],
+    level: float = 0.0,
+) -> trimesh.Trimesh:
+    """Extract high-resolution isosurface mesh using multi-threaded Flying Edges with Marching Cubes fallback."""
+```
+
+#### `smooth_mesh_taubin` & `compute_mean_curvature`
+*Module:* [`graphite.mesh.smoothing`](graphite/mesh/smoothing.py)
+```python
+def smooth_mesh_taubin(
+    mesh: trimesh.Trimesh,
+    iterations: int = 15,
+    lamb: float = 0.5,
+    nu: float = -0.53,
+    inplace: bool = False,
+) -> trimesh.Trimesh:
+    """Apply volume-preserving Taubin smoothing (alternating shrink/dilate) to relax curvature without shrinkage."""
+
+def compute_mean_curvature(mesh: trimesh.Trimesh) -> np.ndarray:
+    """Compute vertex mean curvature H via PyVista/VTK or discrete Laplace-Beltrami operator."""
+```
+
+### 3.6 Micro-Scale Voxel RVE Homogenization & Mechanics Routines
+*Module:* [`graphite.fea.homogenization`](graphite/fea/homogenization.py)
+```python
+def build_voxel_c3d8_stiffness(
+    hx: float, hy: float, hz: float, E: float, nu: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute analytical 24x24 element stiffness matrix K0 and centroid B matrix."""
+
+def homogenize_voxel_rve(
+    voxel_mask: np.ndarray,
+    config: RVEGridConfig | None = None,
+) -> HomogenizationResult:
+    """Perform 3D linear-elastic asymptotic homogenization on a voxelized RVE with periodic boundary conditions."""
+
+def homogenize_tpms_cell(
+    lattice_type: str = "Gyroid",
+    solid_fraction: float = 0.33,
+    is_sheet: bool = True,
+    config: RVEGridConfig | None = None,
+) -> HomogenizationResult:
+    """Homogenize a Triply Periodic Minimal Surface (TPMS) unit cell."""
+
+def homogenize_strut_cell(
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    strut_radius: float,
+    config: RVEGridConfig | None = None,
+) -> HomogenizationResult:
+    """Homogenize an explicit strut unit cell (nodes + struts) on [0, 1]^3."""
+```
+
+### 3.7 Parameter Sweep & Constitutive Tensor Surrogate Modeling
+*Module:* [`graphite.fea.surrogate`](graphite/fea/surrogate.py)
+```python
+def build_tpms_homogenization_surrogate(
+    lattice_type: str = "Gyroid",
+    solid_fractions: tuple[float, ...] = (0.10, 0.20, 0.30, 0.40, 0.50, 0.60),
+    is_sheet: bool = True,
+    rve_config: RVEGridConfig | None = None,
+    fitting_method: Literal["pchip", "cubic", "power_law"] = "pchip",
+) -> MaterialTensorSurrogate:
+    """Run an automated parameter sweep over TPMS solid fractions and construct a tensor surrogate."""
+
+def build_strut_homogenization_surrogate(
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    radii: tuple[float, ...] = (0.05, 0.08, 0.12, 0.16, 0.20),
+    symmetry_type: Literal["cubic", "orthotropic", "anisotropic"] = "cubic",
+    rve_config: RVEGridConfig | None = None,
+    fitting_method: Literal["pchip", "cubic", "power_law"] = "pchip",
+) -> MaterialTensorSurrogate:
+    """Run an automated parameter sweep over explicit strut radii and construct a tensor surrogate."""
+```
+
+### 3.8 Two-Scale Continuum Macro-FEA Bridge (Aristo Integration)
+*Module:* [`graphite.fea.aristo_bridge`](graphite/fea/aristo_bridge.py)
+```python
+def create_box_continuum_mesh(
+    bounds: tuple[tuple[float, float, float], tuple[float, float, float]] = (
+        (0.0, 0.0, 0.0),
+        (10.0, 10.0, 10.0),
+    ),
+    subdivisions: tuple[int, int, int] = (10, 10, 10),
+    elem_type: Literal["tet4", "hex8"] = "tet4",
+) -> MacroMesh:
+    """Create a structured box continuum volume mesh."""
+
+def generate_macro_continuum_mesh(
+    cad_mesh: Any,
+    target_element_size: float = 2.0,
+    mesh_algorithm: int = 1,
+) -> MacroMesh:
+    """Generate a 3D linear tetrahedral macro-mesh for an arbitrary closed CAD surface using Gmsh."""
+
+def map_grading_field_to_centroids(
+    mesh: MacroMesh,
+    grading_source: Callable[[np.ndarray], np.ndarray] | float | np.ndarray,
+) -> np.ndarray:
+    """Evaluate a spatial grading function or parameter at macro-element centroids."""
+
+def evaluate_surrogate_elasticity(
+    mesh: MacroMesh,
+    surrogate: MaterialTensorSurrogate,
+    param_values: np.ndarray,
+) -> np.ndarray:
+    """Evaluate the homogenized elasticity tensor C^H for each macro-element via the surrogate."""
+
+def assemble_anisotropic_global_K(
+    mesh: MacroMesh,
+    C_elements: np.ndarray,
+    chunk_size: int = 10000,
+) -> tuple[csr_matrix, np.ndarray]:
+    """Assemble the global stiffness matrix K for a P1 tetrahedral mesh with element-wise anisotropic stiffness."""
+
+def run_two_scale_macro_fea(
+    mesh: MacroMesh,
+    surrogate: MaterialTensorSurrogate,
+    grading_source: Callable[[np.ndarray], np.ndarray] | float | np.ndarray,
+    fixed_nodes: np.ndarray,
+    forces: np.ndarray,
+    fixed_components: tuple[int, ...] = (0, 1, 2),
+    config: AristoConfig | None = None,
+) -> TwoScaleFEAResult:
+    """Execute two-scale macro FEA on a continuum mesh using a homogenized constitutive surrogate."""
+
+def export_two_scale_result_vtk(
+    result: TwoScaleFEAResult,
+    filepath: str | Path,
+) -> Path:
+    """Export the two-scale macro FEA result to a VTK Unstructured Grid (.vtu)."""
+```
+
+### 3.9 Closed-Loop Stress-Adaptive Topology Optimization Engine (Path A)
+*Module:* [`graphite.fea.stress_adaptation`](graphite/fea/stress_adaptation.py)
+```python
+def build_neighborhood_filter(
+    mesh: MacroMesh,
+    filter_radius: float,
+) -> csr_matrix:
+    """Construct a sparse distance-weighted neighborhood smoothing matrix W_norm."""
+
+def apply_volume_bisection_scaling(
+    densities: np.ndarray,
+    element_volumes: np.ndarray,
+    target_volume_fraction: float,
+    min_density: float,
+    max_density: float,
+    max_bisection_iter: int = 25,
+) -> np.ndarray:
+    """Scale densities via 1D bisection to strictly satisfy target volume fraction."""
+
+def optimize_lattice_density_fsd(
+    mesh: MacroMesh,
+    surrogate: MaterialTensorSurrogate,
+    fixed_nodes: np.ndarray,
+    forces: np.ndarray,
+    config: StressAdaptationConfig | None = None,
+    initial_densities: np.ndarray | float | None = None,
+    fixed_components: tuple[int, ...] = (0, 1, 2),
+    aristo_config: AristoConfig | None = None,
+) -> TwoScaleOptimizationResult:
+    """Execute closed-loop stress-adaptive Fully Stressed Design (FSD) optimization."""
+
+def export_optimization_result_vtk(
+    result: TwoScaleOptimizationResult,
+    filepath: str | Path,
+) -> None:
+    """Export optimization results and fields to a ParaView/PyVista VTU file."""
+
+def render_optimization_summary_png(
+    result: TwoScaleOptimizationResult,
+    out_path_3d: str | Path,
+    out_path_convergence: str | Path | None = None,
+    window_size: tuple[int, int] = (1600, 600),
+) -> tuple[Path, Path | None]:
+    """Render publication-quality PNG images of 3D fields and convergence history."""
+
+def realize_optimized_tpms_lattice(
+    result: TwoScaleOptimizationResult,
+    lattice_type: str = "Gyroid",
+    cell_size: float = 10.0,
+    resolution: tuple[int, int, int] = (120, 30, 30),
+    out_stl: str | Path | None = None,
+    taubin_iterations: int = 15,
+) -> trimesh.Trimesh:
+    """Synthesize a physical, watertight, 3D printable TPMS mesh from converged optimal densities."""
+
+def realize_optimized_strut_lattice(
+    result: TwoScaleOptimizationResult,
+    rule_name: str = "octet",
+    cell_size: float = 2.0,
+    out_stl: str | Path | None = None,
+    clean_miter: bool = True,
+    cad_mesh: Any | None = None,
+    circular_segments: int = 12,
+) -> trimesh.Trimesh:
+    """Synthesize an explicit strut lattice mesh with clean mitered joints from converged densities."""
+
+def run_aristo_adaptive(
+    part: trimesh.Trimesh | MacroMesh | tuple[tuple[float, float, float], tuple[float, float, float]],
+    config: AristoAdaptConfig | None = None,
+    *,
+    lattice_type: str = "octet",
+    surrogate: MaterialTensorSurrogate | None = None,
+    cell_size_mm: float = 2.0,
+    base_E_MPa: float = 2000.0,
+    base_nu: float = 0.35,
+    elem_type: Literal["tet4", "hex8"] = "tet4",
+    subdivisions: tuple[int, int, int] | None = None,
+    macro_resolution_mm: float | None = None,
+    fixed_face: Literal["-x", "+x", "-y", "+y", "-z", "+z"] | None = "-x",
+    load_face: Literal["-x", "+x", "-y", "+y", "-z", "+z"] | None = "+x",
+    fixed_nodes: np.ndarray | None = None,
+    applied_forces: dict[int, np.ndarray] | None = None,
+    total_force_N: float | None = 1000.0,
+    load_direction: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    realize_lattice: bool = False,
+    clean_miter: bool = True,
+    output_stl: str | Path | None = None,
+    output_vtu: str | Path | None = None,
+    output_png: str | Path | None = None,
+    logger: Callable[[str], None] | None = None,
+) -> AristoAdaptResult:
+    """Run closed-loop two-scale stress-adaptive lattice optimization in Aristo."""
+```
+
 
 #### `generate_geometry`
 *Module:* [`graphite.explicit.geometry_module`](graphite/explicit/geometry_module.py)

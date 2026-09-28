@@ -347,9 +347,9 @@ def _compute_jacobians_and_grads(
 
     J_inv = np.linalg.inv(J)  # (M, 3, 3)
 
-    # Physical gradients: dN_phys[m,i,j] = Σₖ dN_ref[i,k] · J_inv[m,k,j]
-    # einsum: 'ik, mkj → mij'  (i=node index, k=ref-coord, j=phys-coord)
-    dN_phys = np.einsum("ik,mkj->mij", _DN_REF, J_inv)  # (M, 4, 3)
+    # Physical gradients: dN_phys[m,i,j] = Σₖ dN_ref[i,k] · J_inv[m,j,k]
+    # einsum: 'ik, mjk → mij'  (i=node index, k=ref-coord, j=phys-coord)
+    dN_phys = np.einsum("ik,mjk->mij", _DN_REF, J_inv)  # (M, 4, 3)
 
     return J_inv, dN_phys, volumes
 

@@ -69,6 +69,14 @@ from .writer_3mf import (
     export_interlinked_3mf,
     solidify_particle_prototype,
 )
+from .epitaxy import (
+    EpitaxialAlignment,
+    EpitaxialFeasibilityResult,
+    InterlinkedTransitionConfig,
+    EpitaxialIncompatibilityError,
+    solve_epitaxial_transition,
+    analyze_epitaxial_transition,
+)
 
 _LEGACY_PATTERNS = {
     "european_4in1",
@@ -144,6 +152,16 @@ class InterlinkedConfig:
     frame_shape: str = "box"
     export_format: str = "stl"
     support_recipe: str | None = None
+    transition_to_cell: InterlinkedCell | str | None = None
+    transition_config: Any | None = None
+    transition_mode: str = "discrete"
+    num_morph_layers: int = 2
+    zones: Sequence[Any] | None = None
+    thickness_gradient: Any | None = None
+    gradient_axis: str | None = None
+    gradient_radius_range: tuple[float, float] | None = None
+    gradient_bounds: tuple[float, float] | None = None
+    num_thickness_buckets: int = 16
 
 
 @dataclass
@@ -265,32 +283,48 @@ def _particles_to_combined_mesh(
     particles: Sequence[InterlinkedParticle],
     wire_radius: float,
     circular_segments: int = 24,
+    num_thickness_buckets: int = 16,
 ) -> trimesh.Trimesh:
     """
     Combine particles into a single multi-body trimesh using prototype instancing.
 
     Reuses prototype mesh geometry at the origin, transforming and indexing faces
-    in O(N) array operations.
+    in O(N) array operations. Supports variable per-particle wire radii via bucketing.
     """
     if not particles:
         return trimesh.Trimesh()
 
     proto_cache: dict[str, trimesh.Trimesh] = {}
 
-    def _key(p: InterlinkedParticle) -> str:
+    # Inspect per-particle wire radii and establish bucket centers
+    radii_list = [p.effective_wire_radius(fallback=wire_radius) for p in particles]
+    min_r, max_r = min(radii_list), max(radii_list)
+
+    if abs(max_r - min_r) > 1e-4 and num_thickness_buckets > 1:
+        bucket_centers = np.linspace(min_r, max_r, num_thickness_buckets)
+    else:
+        bucket_centers = np.array([0.5 * (min_r + max_r)])
+
+    def _quantized_radius(r_val: float) -> float:
+        idx = int(np.argmin(np.abs(bucket_centers - r_val)))
+        return float(bucket_centers[idx])
+
+    def _key(p: InterlinkedParticle, r_q: float) -> str:
         g = p.geometry
-        return f"{g.geometry_type}_{len(g.nodes)}_{len(g.struts)}_{p.sublattice_id}"
+        return f"{g.geometry_type}_{len(g.nodes)}_{len(g.struts)}_{p.sublattice_id}_r{r_q:.4f}"
 
     transformed_vertices: list[np.ndarray] = []
     transformed_faces: list[np.ndarray] = []
     vertex_offset = 0
 
     for p in particles:
-        k = _key(p)
+        p_r = p.effective_wire_radius(fallback=wire_radius)
+        r_bucket = _quantized_radius(p_r)
+        k = _key(p, r_bucket)
         if k not in proto_cache:
             proto_cache[k] = solidify_particle_prototype(
                 p.geometry,
-                strut_radius=wire_radius,
+                strut_radius=r_bucket,
                 circular_segments=circular_segments,
             )
         base_mesh = proto_cache[k]
@@ -309,6 +343,214 @@ def _particles_to_combined_mesh(
     return trimesh.Trimesh(vertices=all_v, faces=all_f, process=False)
 
 
+
+def _generate_epitaxial_transition_lattice(
+    config: InterlinkedConfig,
+    check_clearance: bool = True,
+) -> InterlinkedLatticeResult:
+    """
+    Synthesize a multi-zone epitaxial transition lattice bridging two distinct cell types.
+    """
+    # 1. Resolve Cell A
+    if config.cell is not None:
+        if isinstance(config.cell, str):
+            cell_cls_a = InterlinkedRegistry.get(config.cell)
+            cell_a = cell_cls_a() if callable(cell_cls_a) else cell_cls_a
+        elif isinstance(config.cell, InterlinkedCell):
+            cell_a = config.cell
+        elif callable(config.cell):
+            cell_a = config.cell()
+        else:
+            raise TypeError(f"Unsupported cell parameter type: {type(config.cell)}")
+    else:
+        cell_cls_a = InterlinkedRegistry.get(config.pattern)
+        cell_a = cell_cls_a() if callable(cell_cls_a) else cell_cls_a
+
+    # 2. Resolve Cell B
+    cell_b_raw = config.transition_to_cell
+    if isinstance(cell_b_raw, str):
+        cell_cls_b = InterlinkedRegistry.get(cell_b_raw)
+        cell_b = cell_cls_b() if callable(cell_cls_b) else cell_cls_b
+    elif isinstance(cell_b_raw, InterlinkedCell):
+        cell_b = cell_b_raw
+    elif callable(cell_b_raw):
+        cell_b = cell_b_raw()
+    else:
+        raise TypeError(f"Unsupported transition_to_cell type: {type(cell_b_raw)}")
+
+    wire_r = float(config.wire_radius)
+    min_clr = float(config.min_clearance)
+    pitch_a = float(config.pitch) if config.pitch is not None else 9.10
+    pitch_b = float(np.sqrt(2.0) * pitch_a)
+
+    # 3. Solve Epitaxial Alignment via the Three Laws
+    alignment = solve_epitaxial_transition(
+        cell_a=cell_a,
+        cell_b=cell_b,
+        pitch_a=pitch_a,
+        pitch_b=pitch_b,
+        wire_radius=wire_r,
+        min_clearance=min_clr,
+    )
+
+    # 4. Instantiate Multi-Zone Particles
+    grid_a = config.grid_size  # (nx, ny, nz)
+    grid_b = config.grid_size
+    dx_int = float(alignment.interface_offset)
+    R_habit = alignment.rotation_matrix
+
+    particles: list[InterlinkedParticle] = []
+    pid = 0
+
+    # Zone 1: Cell A (Simple Cubic, nx layers along -X)
+    for ix in range(-grid_a[0], 0):
+        for iy in range(grid_a[1]):
+            for iz in range(grid_a[2]):
+                origin = np.array([(ix + 1) * pitch_a - dx_int, iy * pitch_a, iz * pitch_a], dtype=np.float64)
+                parts_site = cell_a.instantiate_site((ix, iy, iz), origin, pitch_a, id_start=pid)
+                for p in parts_site:
+                    p.metadata["zone"] = "Zone_A"
+                    p.metadata["layer_x"] = ix
+                    particles.append(p)
+                    pid += 1
+
+    # Zone 3: Cell B (Diamond Cubic, extending along +X)
+    from .pams import _tet_ab_templates, _TET_STRUTS
+
+    L_tet = 0.603 * pitch_b
+    proto_a = ParticleGeometry(nodes=_tet_ab_templates(L_tet)[0], struts=_TET_STRUTS.copy(), bounding_radius=L_tet, geometry_type="TET")
+    proto_b = ParticleGeometry(nodes=_tet_ab_templates(L_tet)[1], struts=_TET_STRUTS.copy(), bounding_radius=L_tet, geometry_type="TET")
+
+    ny_a, nz_a = grid_a[1], grid_a[2]
+    w_y = (ny_a - 1) * pitch_a
+    w_z = (nz_a - 1) * pitch_a
+    margin = 1.0  # Buffer margin to capture boundary sites
+    y_min, y_max = -margin, w_y + margin
+    z_min, z_max = -margin, w_z + margin
+
+    y_dia_min = (y_min + z_min) / np.sqrt(2.0)
+    y_dia_max = (y_max + z_max) / np.sqrt(2.0)
+    z_dia_min = (z_min - y_max) / np.sqrt(2.0)
+    z_dia_max = (z_max - y_min) / np.sqrt(2.0)
+
+    j_min = int(np.floor(y_dia_min / pitch_b)) - 1
+    j_max = int(np.ceil(y_dia_max / pitch_b)) + 1
+    k_min = int(np.floor(z_dia_min / pitch_b)) - 1
+    k_max = int(np.ceil(z_dia_max / pitch_b)) + 1
+
+    fcc_offsets = [(0.0, 0.0, 0.0), (0.5, 0.5, 0.0), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5)]
+    basis_b_vec = np.array([0.25, 0.25, 0.25], dtype=np.float64) * pitch_b
+    seen_sites: set[tuple[float, float, float]] = set()
+
+    for i in range(grid_b[0]):
+        for j in range(j_min, j_max + 1):
+            for k in range(k_min, k_max + 1):
+                cell_orig = np.array([i, j, k], dtype=np.float64) * pitch_b
+                for fcc in fcc_offsets:
+                    pA = cell_orig + np.asarray(fcc, dtype=np.float64) * pitch_b
+                    pB = pA + basis_b_vec
+                    for p_raw, sub in [(pA, "A"), (pB, "B")]:
+                        key = (round(float(p_raw[0]), 3), round(float(p_raw[1]), 3), round(float(p_raw[2]), 3))
+                        if key in seen_sites:
+                            continue
+                        seen_sites.add(key)
+                        pos_rot = R_habit @ p_raw
+                        if (y_min - 1e-4 <= pos_rot[1] <= y_max + 1e-4 and
+                            z_min - 1e-4 <= pos_rot[2] <= z_max + 1e-4 and
+                            0.0 <= pos_rot[0] <= pitch_b * (grid_b[0] - 0.5)):
+                            geom = proto_a if sub == "A" else proto_b
+                            T = np.eye(4, dtype=np.float64)
+                            T[:3, :3] = R_habit
+                            T[:3, 3] = pos_rot
+                            p = InterlinkedParticle(
+                                particle_id=pid,
+                                geometry=geom,
+                                transform=T,
+                                sublattice_id=sub,
+                                metadata={"zone": "Zone_B", "layer_x": int(pos_rot[0] / (pitch_b / 4.0))},
+                            )
+                            particles.append(p)
+                            pid += 1
+
+    # 5. Spatial Strut Thickness Grading
+    from .gradient import resolve_thickness_gradient, LinearThicknessGradient
+    centers_all = np.array([p.center for p in particles], dtype=np.float64) if particles else np.zeros((0, 3))
+    pts_envelope = None
+    grad_axis = config.gradient_axis or (config.thickness_gradient.axis if isinstance(config.thickness_gradient, LinearThicknessGradient) else "x")
+    ax_idx = {"x": 0, "y": 1, "z": 2}.get(grad_axis.lower(), 0)
+    if len(centers_all) > 0:
+        pts_envelope = (float(np.min(centers_all[:, ax_idx])), float(np.max(centers_all[:, ax_idx])))
+
+    gradient = resolve_thickness_gradient(
+        gradient=config.thickness_gradient,
+        gradient_axis=config.gradient_axis,
+        gradient_radius_range=config.gradient_radius_range,
+        gradient_bounds=config.gradient_bounds,
+        points_envelope=pts_envelope,
+    )
+
+    if gradient is not None:
+        for p in particles:
+            p.wire_radius = float(gradient.evaluate(p.center))
+
+    strut_r_input: float | list[float] = (
+        [p.effective_wire_radius(fallback=wire_r) for p in particles]
+        if gradient is not None
+        else wire_r
+    )
+
+    # 6. Clearance Verification
+    clearance_valid = True
+    min_clr_found = float("inf")
+    clr_report = []
+    if check_clearance and len(particles) > 1:
+        clearance_valid, min_clr_found, clr_report = check_particle_clearance(
+            particles,
+            min_clearance=min_clr,
+            strut_radius=strut_r_input,
+        )
+
+    # 7. Combined Mesh
+    mesh = _particles_to_combined_mesh(
+        particles,
+        wire_radius=wire_r,
+        circular_segments=config.num_ring_segments,
+        num_thickness_buckets=config.num_thickness_buckets,
+    )
+
+    volume = float(mesh.volume) if hasattr(mesh, "volume") else 0.0
+    bounds = np.asarray(mesh.bounds, dtype=np.float64) if len(mesh.vertices) > 0 else np.zeros((2, 3))
+
+    metadata = {
+        "transition_type": "epitaxial",
+        "cell_a": getattr(cell_a, "name", str(cell_a)),
+        "cell_b": getattr(cell_b, "name", str(cell_b)),
+        "alignment": alignment,
+        "pitch_a": pitch_a,
+        "pitch_b": pitch_b,
+        "wire_radius": wire_r,
+        "min_clearance_target": min_clr,
+        "min_clearance_found": min_clr_found,
+        "clearance_valid": clearance_valid,
+        "num_particles": len(particles),
+    }
+
+    return InterlinkedLatticeResult(
+        mesh=mesh,
+        rings=[],
+        num_rings=len(particles),
+        num_nodes=sum(len(p.geometry.nodes) for p in particles),
+        num_struts=sum(len(p.geometry.struts) for p in particles),
+        min_clearance=min_clr_found,
+        clearance_valid=clearance_valid,
+        volume=volume,
+        bounds=bounds,
+        metadata=metadata,
+        particles=particles,
+        wire_radius=wire_r,
+    )
+
+
 def generate_interlinked_lattice(
     config: InterlinkedConfig | None = None,
     boundary_mesh: trimesh.Trimesh | None = None,
@@ -318,25 +560,6 @@ def generate_interlinked_lattice(
 ) -> InterlinkedLatticeResult:
     """
     Generate an explicit multi-body interlinked lattice mesh.
-
-    Workflow:
-    1. Determines whether to execute the modular cell pipeline (registered cell or custom cell)
-       or legacy ring generator path.
-    2. Seeds lattice sites (Cartesian, Staggered, Hexagonal, Diamond, Cylindrical Wrap, Spherical Shell).
-    3. Inset-culls particles against the boundary volume (Policy A), guaranteeing zero cut particles.
-    4. Synthesizes solid perimeter frame if enabled (Policy C).
-    5. Verifies pairwise minimum clearance and topological links.
-    6. Assembles watertight multi-body mesh and supports instanced 3MF and STL export.
-
-    Args:
-        config: InterlinkedConfig specification instance.
-        boundary_mesh: Optional watertight trimesh domain for inset culling.
-        sdf_fn: Optional signed distance function for inset culling.
-        check_clearance: If True, evaluates pairwise clearances.
-        **kwargs: Overrides for InterlinkedConfig attributes.
-
-    Returns:
-        InterlinkedLatticeResult containing mesh, particles, frame, and export methods.
     """
     if config is None:
         config = InterlinkedConfig(**kwargs)
@@ -347,6 +570,44 @@ def generate_interlinked_lattice(
         }
         config_dict.update(kwargs)
         config = InterlinkedConfig(**config_dict)
+
+    # Check for multi-zone superlattice delegation
+    if config.zones is not None:
+        from .superlattice import SuperlatticeConfig, generate_epitaxial_superlattice
+        sl_cfg = SuperlatticeConfig(
+            zones=list(config.zones),
+            grid_transverse=(config.grid_size[1], config.grid_size[2]),
+            wire_radius=config.wire_radius,
+            min_clearance=config.min_clearance,
+            thickness_gradient=config.thickness_gradient,
+            gradient_axis=config.gradient_axis,
+            gradient_radius_range=config.gradient_radius_range,
+            gradient_bounds=config.gradient_bounds,
+            num_thickness_buckets=config.num_thickness_buckets,
+        )
+        return generate_epitaxial_superlattice(sl_cfg, check_clearance=check_clearance)
+
+    # Check for multi-zone epitaxial transition delegation
+    if config.transition_to_cell is not None or config.transition_config is not None:
+        if getattr(config, "transition_mode", "discrete").lower() == "morph":
+            from .morphing import EpitaxialMorphConfig, generate_epitaxial_morph_lattice
+            m_cfg = EpitaxialMorphConfig(
+                cell_a=config.cell or config.pattern,
+                cell_b=config.transition_to_cell,
+                grid_size_a=config.grid_size,
+                grid_size_b=config.grid_size,
+                num_morph_layers=config.num_morph_layers,
+                pitch=config.pitch,
+                wire_radius=config.wire_radius,
+                min_clearance=config.min_clearance,
+                thickness_gradient=config.thickness_gradient,
+                gradient_axis=config.gradient_axis,
+                gradient_radius_range=config.gradient_radius_range,
+                gradient_bounds=config.gradient_bounds,
+                num_thickness_buckets=config.num_thickness_buckets,
+            )
+            return generate_epitaxial_morph_lattice(m_cfg, check_clearance=check_clearance)
+        return _generate_epitaxial_transition_lattice(config, check_clearance=check_clearance)
 
     pattern_raw = config.pattern.lower().strip()
     use_modular = (config.cell is not None) or (pattern_raw not in _LEGACY_PATTERNS)
@@ -501,6 +762,33 @@ def generate_interlinked_lattice(
                 frame_shape=config.frame_shape,
             )
 
+        # Spatial Strut Thickness Grading
+        from .gradient import resolve_thickness_gradient, LinearThicknessGradient
+        centers_all = np.array([p.center for p in particles], dtype=np.float64) if particles else np.zeros((0, 3))
+        pts_envelope = None
+        grad_axis = config.gradient_axis or (config.thickness_gradient.axis if isinstance(config.thickness_gradient, LinearThicknessGradient) else "x")
+        ax_idx = {"x": 0, "y": 1, "z": 2}.get(grad_axis.lower(), 0)
+        if len(centers_all) > 0:
+            pts_envelope = (float(np.min(centers_all[:, ax_idx])), float(np.max(centers_all[:, ax_idx])))
+
+        gradient = resolve_thickness_gradient(
+            gradient=config.thickness_gradient,
+            gradient_axis=config.gradient_axis,
+            gradient_radius_range=config.gradient_radius_range,
+            gradient_bounds=config.gradient_bounds,
+            points_envelope=pts_envelope,
+        )
+
+        if gradient is not None:
+            for p in particles:
+                p.wire_radius = float(gradient.evaluate(p.center))
+
+        strut_r_input: float | list[float] = (
+            [p.effective_wire_radius(fallback=wire_r) for p in particles]
+            if gradient is not None
+            else wire_r
+        )
+
         # Clearance Verification
         min_clr = float("inf")
         clearance_valid = True
@@ -509,7 +797,7 @@ def generate_interlinked_lattice(
             clearance_valid, min_clr, clr_report = check_particle_clearance(
                 particles,
                 min_clearance=config.min_clearance,
-                strut_radius=wire_r,
+                strut_radius=strut_r_input,
             )
 
         # Multi-body solid mesh generation
@@ -517,6 +805,7 @@ def generate_interlinked_lattice(
             particles,
             wire_radius=wire_r,
             circular_segments=config.num_ring_segments,
+            num_thickness_buckets=config.num_thickness_buckets,
         )
 
         total_nodes = sum(len(p.geometry.nodes) for p in particles)

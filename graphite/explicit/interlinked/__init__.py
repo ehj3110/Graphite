@@ -110,8 +110,38 @@ from .writer_3mf import (
 from .support_recipes import (
     get_available_support_recipes,
     export_seed_cell_stl,
+    export_seed_cell_reference_cluster_stl,
     apply_support_recipe,
     create_custom_supported_particle,
+)
+from .epitaxy import (
+    EpitaxialAlignment,
+    EpitaxialFeasibilityResult,
+    InterlinkedTransitionConfig,
+    EpitaxialIncompatibilityError,
+    solve_supercell_coincidence,
+    check_aperture_admissibility,
+    optimize_interface_catenation,
+    solve_epitaxial_transition,
+    analyze_epitaxial_transition,
+)
+from .gradient import (
+    ThicknessGradient,
+    LinearThicknessGradient,
+    RadialThicknessGradient,
+    FieldThicknessGradient,
+    resolve_thickness_gradient,
+)
+from .morphing import (
+    build_morphing_tetrahedron_geometry,
+    EpitaxialMorphConfig,
+    EpitaxialBasisMorpher,
+    generate_epitaxial_morph_lattice,
+)
+from .superlattice import (
+    LatticeZoneConfig,
+    SuperlatticeConfig,
+    generate_epitaxial_superlattice,
 )
 
 __all__ = [
@@ -198,6 +228,28 @@ __all__ = [
     "export_interlinked_3mf",
     "get_available_support_recipes",
     "export_seed_cell_stl",
+    "export_seed_cell_reference_cluster_stl",
     "apply_support_recipe",
     "create_custom_supported_particle",
+    "EpitaxialAlignment",
+    "EpitaxialFeasibilityResult",
+    "InterlinkedTransitionConfig",
+    "EpitaxialIncompatibilityError",
+    "solve_supercell_coincidence",
+    "check_aperture_admissibility",
+    "optimize_interface_catenation",
+    "solve_epitaxial_transition",
+    "analyze_epitaxial_transition",
+    "ThicknessGradient",
+    "LinearThicknessGradient",
+    "RadialThicknessGradient",
+    "FieldThicknessGradient",
+    "resolve_thickness_gradient",
+    "build_morphing_tetrahedron_geometry",
+    "EpitaxialMorphConfig",
+    "EpitaxialBasisMorpher",
+    "generate_epitaxial_morph_lattice",
+    "LatticeZoneConfig",
+    "SuperlatticeConfig",
+    "generate_epitaxial_superlattice",
 ]

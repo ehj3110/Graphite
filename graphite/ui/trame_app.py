@@ -117,7 +117,7 @@ def create_app(server=None):
 
     # Explicit strut options
     state.explicit_type_options = ["A15 (Conformal Kagome)", "SC Hex Modular"]
-    state.sc_rule_options = ["octahedral", "cubic", "kelvin"]
+    state.sc_rule_options = ["octahedral", "octet", "cross", "star", "kelvin", "hex_face_dual"]
     state.explicit_mode_options = ["conformal", "boolean"]
 
     # Interlinked metamaterial options

@@ -342,7 +342,7 @@ def _project_cap_vertices_trimesh(
         target_edge_mm=target_edge_mm,
         plane_tol_factor=plane_tol_factor,
     )
-    snap_tol = float(target_edge_mm) * 0.1
+    snap_tol = max(float(target_edge_mm) * 0.1, plane_tol)
     if bottom_verts.size:
         near_bottom = np.abs(verts[bottom_verts, axis] - z_min) <= snap_tol
         verts[bottom_verts[near_bottom], axis] = z_min
@@ -579,7 +579,7 @@ def _project_cap_vertices_o3d(
     top_faces = (normals[:, axis] >= float(cap_normal_dot_min)) & (
         centroids[:, axis] >= z_max - plane_tol
     )
-    snap_tol = float(target_edge_mm) * 0.1
+    snap_tol = max(float(target_edge_mm) * 0.1, plane_tol)
     if np.any(bottom_faces):
         bottom_verts = np.unique(tris[bottom_faces].ravel())
         near_bottom = np.abs(verts[bottom_verts, axis] - z_min) <= snap_tol
@@ -606,6 +606,8 @@ def _remesh_isotropic_surface_open3d(
     axis: int = 2,
     max_remesh_passes: int = 6,
     max_subdiv_per_pass: int = 2,
+    plane_min: float | None = None,
+    plane_max: float | None = None,
 ):
     h = float(target_edge_mm)
     long_edge = 1.6 * h
@@ -623,10 +625,22 @@ def _remesh_isotropic_surface_open3d(
         while _max_edge_length_o3d(mesh) > long_edge and subdivisions < max_subdiv_per_pass:
             mesh = mesh.subdivide_midpoint(number_of_iterations=1)
             subdivisions += 1
-            _project_cap_vertices_o3d(mesh, target_edge_mm=h, axis=axis)
+            _project_cap_vertices_o3d(
+                mesh,
+                target_edge_mm=h,
+                axis=axis,
+                plane_min=plane_min,
+                plane_max=plane_max,
+            )
 
         mesh = _cluster_to_target_edge(mesh, h)
-        _project_cap_vertices_o3d(mesh, target_edge_mm=h, axis=axis)
+        _project_cap_vertices_o3d(
+            mesh,
+            target_edge_mm=h,
+            axis=axis,
+            plane_min=plane_min,
+            plane_max=plane_max,
+        )
 
         aristo_log(
             f"open3d surface clean pass {pass_idx + 1}: "
@@ -638,7 +652,13 @@ def _remesh_isotropic_surface_open3d(
     mesh.remove_duplicated_triangles()
     mesh.remove_degenerate_triangles()
     mesh.remove_unreferenced_vertices()
-    _project_cap_vertices_o3d(mesh, target_edge_mm=h, axis=axis)
+    _project_cap_vertices_o3d(
+        mesh,
+        target_edge_mm=h,
+        axis=axis,
+        plane_min=plane_min,
+        plane_max=plane_max,
+    )
     return mesh
 
 
@@ -648,9 +668,18 @@ def _clean_stl_surface_open3d(
     *,
     axis: int = 2,
 ) -> trimesh.Trimesh:
+    plane_min = float(mesh.bounds[0][axis])
+    plane_max = float(mesh.bounds[1][axis])
     o3d_mesh = trimesh_to_o3d(mesh)
-    o3d_mesh = _remesh_isotropic_surface_open3d(o3d_mesh, target_edge_mm, axis=axis)
+    o3d_mesh = _remesh_isotropic_surface_open3d(
+        o3d_mesh,
+        target_edge_mm,
+        axis=axis,
+        plane_min=plane_min,
+        plane_max=plane_max,
+    )
     return o3d_to_trimesh(o3d_mesh)
+
 
 
 # ---------------------------------------------------------------------------

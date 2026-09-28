@@ -53,6 +53,7 @@ class InterlinkedParticle:
     transform: np.ndarray  # (4, 4) float64 homogeneous matrix in SE(3)
     sublattice_id: str = ""
     cell_index: tuple[int, ...] = field(default_factory=tuple)
+    wire_radius: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -126,8 +127,13 @@ class InterlinkedParticle:
             transform=np.asarray(new_transform, dtype=np.float64).copy(),
             sublattice_id=self.sublattice_id,
             cell_index=self.cell_index,
+            wire_radius=self.wire_radius,
             metadata=dict(self.metadata),
         )
+
+    def effective_wire_radius(self, fallback: float = 0.40) -> float:
+        """Return particle's explicit wire radius if set, else fallback default."""
+        return float(self.wire_radius) if self.wire_radius is not None else float(fallback)
 
     def to_pam(self) -> PAMParticle:
         """

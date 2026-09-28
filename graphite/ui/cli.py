@@ -685,7 +685,7 @@ def main() -> None:
         "--sc-rule",
         type=str,
         default="octahedral",
-        choices=["octahedral", "grid", "star", "octet", "cross", "kelvin", "tesseract", "hex_face_dual", "cubic"],
+        choices=["octahedral", "grid", "star", "octet", "cross", "kelvin", "tesseract", "hex_face_dual"],
         help="SC hex topology rule",
     )
     parser.add_argument(

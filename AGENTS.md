@@ -27,7 +27,7 @@ Conformal lattice R&D: repair shells, generate printable lattices (implicit TPMS
 | Interlinked, chainmail, polycatenated metamaterials (PAMs) | [graphite/explicit/interlinked/README.md](graphite/explicit/interlinked/README.md) |
 | Hex / diamond pentamodes, interlocking auxetics, plate-lattices | [graphite/generators/README.md](graphite/generators/README.md) |
 | TPMS fields, calibration, piecewise Split-P / woodpile, grading, textures | [graphite/implicit/README.md](graphite/implicit/README.md) → [docs/IMPLICIT_GRADING_AND_TEXTURES.md](docs/IMPLICIT_GRADING_AND_TEXTURES.md) |
-| Linear-elastic FEA on STLs (**analysis only** — not for grading lattices) | [graphite/aristo/README.md](graphite/aristo/README.md) |
+| Linear-elastic FEA & Two-Scale Lattice Optimization (Aristo & Aristo Adapt) | [graphite/aristo/README.md](graphite/aristo/README.md) |
 | Fluid permeability / WSS (LBM) | [graphite/lbm/README.md](graphite/lbm/README.md) |
 | Topology optimization (MMA / scikit-topt) | [graphite/topt/README.md](graphite/topt/README.md) |
 | STL health / PyMeshLab repair | [graphite/repair/README.md](graphite/repair/README.md) |

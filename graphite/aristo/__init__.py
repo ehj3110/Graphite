@@ -67,17 +67,101 @@ from graphite.aristo.aristo_config import AristoConfig, MATERIAL_PRESETS
 if os.environ.get("ARISTO_SURFACE_CLEAN_WORKER", "").strip() != "1":
     from graphite.aristo.aristo_solver import AristoResult, run_aristo
     from graphite.aristo.stress_mapper import stress_to_vf_gradient, stress_to_strut_radius_map
+    from graphite.aristo.adaptive import (
+        AristoAdaptConfig,
+        AristoAdaptResult,
+        EngineeringConstants,
+        HomogenizationResult,
+        MacroMesh,
+        MaterialTensorSurrogate,
+        OptimizationIterationRecord,
+        RVEGridConfig,
+        StressAdaptationConfig,
+        SurrogateCalibrationPoint,
+        TwoScaleFEAResult,
+        TwoScaleOptimizationResult,
+        build_octet_homogenization_surrogate,
+        build_strut_homogenization_surrogate,
+        build_tpms_homogenization_surrogate,
+        create_box_continuum_mesh,
+        generate_macro_continuum_mesh,
+        homogenize_octet_cell,
+        homogenize_strut_cell,
+        homogenize_tpms_cell,
+        homogenize_voxel_rve,
+        optimize_lattice_density_fsd,
+        realize_optimized_strut_lattice,
+        realize_optimized_tpms_lattice,
+        render_optimization_summary_png,
+        run_aristo_adaptive,
+        run_two_scale_macro_fea,
+    )
 else:
     AristoResult = None
     run_aristo = None
     stress_to_vf_gradient = None
     stress_to_strut_radius_map = None
+    AristoAdaptConfig = None
+    AristoAdaptResult = None
+    EngineeringConstants = None
+    HomogenizationResult = None
+    MacroMesh = None
+    MaterialTensorSurrogate = None
+    OptimizationIterationRecord = None
+    RVEGridConfig = None
+    StressAdaptationConfig = None
+    SurrogateCalibrationPoint = None
+    TwoScaleFEAResult = None
+    TwoScaleOptimizationResult = None
+    build_octet_homogenization_surrogate = None
+    build_strut_homogenization_surrogate = None
+    build_tpms_homogenization_surrogate = None
+    create_box_continuum_mesh = None
+    generate_macro_continuum_mesh = None
+    homogenize_octet_cell = None
+    homogenize_strut_cell = None
+    homogenize_tpms_cell = None
+    homogenize_voxel_rve = None
+    optimize_lattice_density_fsd = None
+    realize_optimized_strut_lattice = None
+    realize_optimized_tpms_lattice = None
+    render_optimization_summary_png = None
+    run_aristo_adaptive = None
+    run_two_scale_macro_fea = None
 
 __all__ = [
+    "AristoAdaptConfig",
+    "AristoAdaptResult",
     "AristoConfig",
     "AristoResult",
+    "EngineeringConstants",
+    "HomogenizationResult",
     "MATERIAL_PRESETS",
+    "MacroMesh",
+    "MaterialTensorSurrogate",
+    "OptimizationIterationRecord",
+    "RVEGridConfig",
+    "StressAdaptationConfig",
+    "SurrogateCalibrationPoint",
+    "TwoScaleFEAResult",
+    "TwoScaleOptimizationResult",
+    "build_octet_homogenization_surrogate",
+    "build_strut_homogenization_surrogate",
+    "build_tpms_homogenization_surrogate",
+    "create_box_continuum_mesh",
+    "generate_macro_continuum_mesh",
+    "homogenize_octet_cell",
+    "homogenize_strut_cell",
+    "homogenize_tpms_cell",
+    "homogenize_voxel_rve",
+    "optimize_lattice_density_fsd",
+    "realize_optimized_strut_lattice",
+    "realize_optimized_tpms_lattice",
+    "render_optimization_summary_png",
     "run_aristo",
-    "stress_to_vf_gradient",
+    "run_aristo_adaptive",
+    "run_two_scale_macro_fea",
     "stress_to_strut_radius_map",
+    "stress_to_vf_gradient",
 ]
+

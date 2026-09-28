@@ -10,6 +10,16 @@ from graphite.math.textures import (
     triplanar_map,
     triplanar_weights,
 )
+from graphite.math.spinodal import (
+    evaluate_spinodal_field,
+    generate_spinodal_wavevectors,
+    threshold_spinodal_field,
+)
+from graphite.math.boolean import (
+    smooth_difference,
+    smooth_max,
+    smooth_min,
+)
 from graphite.math.tpms import (
     calculate_integrated_phase,
     evaluate_tpms,
@@ -26,8 +36,10 @@ from graphite.math.tpms import (
 __all__ = [
     "bump_field",
     "calculate_integrated_phase",
+    "evaluate_spinodal_field",
     "evaluate_tpms",
     "evaluate_tpms_phase",
+    "generate_spinodal_wavevectors",
     "gyroid",
     "knurl_field",
     "lidinoid",
@@ -36,8 +48,12 @@ __all__ = [
     "schwarz_d",
     "schwarz_diamond",
     "schwarz_p",
+    "smooth_difference",
+    "smooth_max",
+    "smooth_min",
     "spinodal_spectral_field",
     "split_p",
+    "threshold_spinodal_field",
     "triplanar_map",
     "triplanar_weights",
 ]

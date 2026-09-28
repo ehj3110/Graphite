@@ -171,6 +171,14 @@ class D4TetCell:
         d = float(strut_diameter)
         return float((tc + d) / self.CLEARANCE_KAPPA)
 
+    def habit_plane_aperture(self, plane: str = "100", edge_length: float = 7.76) -> float:
+        """Internal clearance aperture diameter (mm) of triangular window."""
+        return float(float(edge_length) / np.sqrt(3.0))
+
+    def habit_plane_profile(self, plane: str = "100", edge_length: float = 7.76) -> float:
+        """External cross-sectional profile diameter (mm) entering habit plane."""
+        return float(float(edge_length) / np.sqrt(2.0))
+
     def instantiate_site(
         self,
         grid_index: tuple[int, int, int],

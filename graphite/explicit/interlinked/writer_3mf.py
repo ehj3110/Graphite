@@ -109,6 +109,7 @@ def export_interlinked_3mf(
     solid_frames: Sequence[trimesh.Trimesh] | trimesh.Trimesh | None = None,
     prototype_meshes: dict[str, trimesh.Trimesh] | None = None,
     circular_segments: int = 24,
+    num_thickness_buckets: int = 16,
 ) -> Path:
     """
     Export an assembly of InterlinkedParticle instances as a true instanced 3MF package.
@@ -141,24 +142,43 @@ def export_interlinked_3mf(
     prototype_registry: dict[str, tuple[int, trimesh.Trimesh]] = {}
     next_obj_id = 1
 
-    # 1. Group particles by prototype key
-    # Key incorporates geometry type, node count, strut count, and metadata hash
-    def _proto_key(p: InterlinkedParticle) -> str:
+    # 1. Inspect per-particle wire radii and establish bucket centers
+    radii_list = [p.effective_wire_radius(fallback=strut_radius) for p in particles]
+    if radii_list:
+        min_r = min(radii_list)
+        max_r = max(radii_list)
+    else:
+        min_r = max_r = strut_radius
+
+    if abs(max_r - min_r) > 1e-4 and num_thickness_buckets > 1:
+        bucket_centers = np.linspace(min_r, max_r, num_thickness_buckets)
+    else:
+        bucket_centers = np.array([0.5 * (min_r + max_r)])
+
+    def _quantized_radius(r_val: float) -> float:
+        idx = int(np.argmin(np.abs(bucket_centers - r_val)))
+        return float(bucket_centers[idx])
+
+    # 2. Group particles by prototype key (including quantized radius)
+    def _proto_key(p: InterlinkedParticle, r_q: float) -> str:
         g = p.geometry
-        return f"{g.geometry_type}_{len(g.nodes)}_{len(g.struts)}_{p.sublattice_id}"
+        return f"{g.geometry_type}_{len(g.nodes)}_{len(g.struts)}_{p.sublattice_id}_r{r_q:.4f}"
 
     particle_items: list[tuple[int, str]] = []  # (object_id, transform_str)
 
     for p in particles:
-        key = _proto_key(p)
+        p_r = p.effective_wire_radius(fallback=strut_radius)
+        r_bucket = _quantized_radius(p_r)
+        key = _proto_key(p, r_bucket)
+
         if key not in prototype_registry:
-            # Solidify prototype once
+            # Solidify prototype once per unique geometry + radius bucket
             if key in proto_cache:
                 m = proto_cache[key]
             else:
                 m = solidify_particle_prototype(
                     geometry=p.geometry,
-                    strut_radius=strut_radius,
+                    strut_radius=r_bucket,
                     circular_segments=circular_segments,
                 )
                 proto_cache[key] = m
