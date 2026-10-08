@@ -1,14 +1,29 @@
 # Coaster Collection — High-Contrast Deliverables (2D Previews)
 
-This document presents the new high-contrast deliverable figures created for the coaster collection, formatted to match the product presentation aspect ratio (1024:765, rendered in 2048 x 1530 px high resolution).
+This document presents the ultra-maximized, high-contrast deliverable figures created for the complete coaster collection, formatted to match the product presentation canvas aspect ratio (1024:765, rendered at 2048 x 1530 px high resolution).
 
 ### Visual & Technical Enhancements
 - **Aspect Ratio**: 1024:765 (~1.3386, 4:3 format), matching the reference product photography canvas.
+- **Ultra-Maximized Coaster Scale**: Coasters are scaled to take up the maximum possible canvas space without overlapping or clipping text/shadows.
 - **High Contrast**: Deep solid carbon (`#141416`) on a clean studio neutral background (`#F8F9FA`).
-- **Product Elevation**: Subtle, realistic Gaussian drop shadows underneath each coaster for depth.
-- **Maximum Density**: At most 3 coasters wide and 3 coasters tall per figure.
+- **Product Elevation**: Soft, realistic Gaussian drop shadows underneath each coaster for depth.
+- **Grid Constraints**: At most 3 coasters wide and 3 coasters tall per figure.
 - **Symmetric Centering**: Each figure utilizes a balanced, horizontally and vertically centered layout.
 - **TPMS Filtering**: Split-P dropped as requested, presenting the 8 core designs (Gyroid, Diamond, Lidinoid, Neovius at $Z=0$ and $Z=2.4\text{mm}$) in a balanced 3-row layout.
+
+---
+
+### Coaster Scale Comparison
+
+| Category | Coasters | Layout Grid | Prior Diameter | Ultra-Max Diameter | Canvas Span |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **A15** | 3 | 1 Row of 3 | 610 px | **660 px** | 98.4% width |
+| **C15** | 3 | 1 Row of 3 | 610 px | **660 px** | 98.4% width |
+| **Voronoi Dense** | 3 | 1 Row of 3 | 610 px | **660 px** | 98.4% width |
+| **Voronoi Sparse** | 4 | 2 × 2 Grid | 580 px | **650 px** | 93.0% height |
+| **Explicit Square** | 4 | 2 × 2 Grid | 580 px | **650 px** | 93.0% height |
+| **Explicit Tri** | 5 | 3 Top, 2 Bottom | 560 px | **650 px** | 98.4% width |
+| **TPMS** | 8 | 3 × 2 × 3 Balanced | 390 px | **430 px** | 91.5% height |
 
 ---
 
