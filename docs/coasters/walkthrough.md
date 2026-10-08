@@ -1,144 +1,60 @@
-# Coaster Collection — Project Walkthrough
+# Coaster Collection — High-Contrast Deliverables (2D Previews)
 
-This document summarizes the full coaster collection project, including what was built, how it was made, and how to reproduce or extend the work.
+This document presents the new high-contrast deliverable figures created for the coaster collection, formatted to match the product presentation aspect ratio (1024:765, rendered in 2048 x 1530 px high resolution).
 
----
-
-## 1. Overview
-
-This project generates a library of 3D-printable coasters using three distinct methodologies:
-
-| Category | Method | Count |
-|---|---|---|
-| TPMS (Triply Periodic Minimal Surfaces) | Voxel implicit + marching cubes | 5 types |
-| Explicit Strut Lattices (Tri & Square) | 2D SDF + marching cubes | 9 types |
-| Voronoi | 2D SDF + marching cubes | 7 patterns |
-| Crystal Structures (A15 & C15) | 2D projection + extrusion | 6 variants |
-
-Each coaster type is produced in three **shapes** (Circle, Hexagon, Rectangle) and two **modes** (Framed, Unframed), yielding **162 total STL files**.
-
-Each coaster is **100mm across** and **5mm tall**.
+### Visual & Technical Enhancements
+- **Aspect Ratio**: 1024:765 (~1.3386, 4:3 format), matching the reference product photography canvas.
+- **High Contrast**: Deep solid carbon (`#141416`) on a clean studio neutral background (`#F8F9FA`).
+- **Product Elevation**: Subtle, realistic Gaussian drop shadows underneath each coaster for depth.
+- **Maximum Density**: At most 3 coasters wide and 3 coasters tall per figure.
+- **Symmetric Centering**: Each figure utilizes a balanced, horizontally and vertically centered layout.
+- **TPMS Filtering**: Split-P dropped as requested, presenting the 8 core designs (Gyroid, Diamond, Lidinoid, Neovius at $Z=0$ and $Z=2.4\text{mm}$) in a balanced 3-row layout.
 
 ---
 
-## 2. Methodology
+## 1. A15 Crystal Structure
+3 sequential Z-offsets ($z=0$, $z=L/8$, $z=L/4$) arranged in a clean horizontal progression:
 
-### TPMS Coasters
-Triply periodic minimal surfaces (Gyroid, Diamond, Lidinoid, Neovius, Split-P) are evaluated as implicit scalar fields over a 3D voxel grid. The isosurface at a threshold corresponding to 33% solid fraction is extracted via marching cubes. The resulting mesh is then cropped to the coaster boundary shape and height.
-
-### Explicit Strut Lattices
-Triangle-based (Tetrahedral, Icosahedral, Kelvin, Tesseract, Rhombic) and square-based (Grid, Icosahedral, Kelvin, Tesseract) lattice topologies are defined as collections of 2D line segments. A signed distance field is computed for all segments, and marching cubes extracts the solid strut geometry bounded by the coaster height.
-
-### Voronoi Coasters
-Voronoi tessellations are generated across the coaster plane using random seed points at two densities (sparse "large" and dense "small"). Cells are converted to 2D SDF segments and extruded via marching cubes.
-
-### Crystal Structure Coasters (A15 & C15) — 2D Projection & Extrusion
-The most complex category. Rather than using marching cubes (which produces rough, voxelized top/bottom surfaces), the crystal coasters use a **2D projection and extrusion** pipeline:
-
-1. **Generate 3D lattice**: Atomic basis positions for the A15 (Frank-Kasper) or C15 (Laves phase) unit cell are tiled across a 3D grid.
-2. **Connect neighbours**: A KD-tree finds all pairs of atoms within a cutoff distance and creates strut edges.
-3. **Z-filter**: Only struts that pass through a thin slab around a chosen height $z_\text{offset}$ are retained, controlled by a `z_limit` parameter (2.5mm for A15, 5.0mm for C15).
-4. **2D projection**: Retained strut endpoints are projected onto the XY plane.
-5. **Shapely buffering**: Each 2D segment is buffered by the strut radius to create a solid polygon.
-6. **Extrusion**: The combined 2D polygon is extruded to 5mm height using `trimesh.path.extrude`, producing a watertight solid with perfectly flat top and bottom faces.
-
-This avoids marching cubes entirely, ensuring:
-- Flat, smooth top/bottom layers for printing
-- Minimal file sizes
-- No voxelization artifacts
-
-#### A15 Parameters
-- Unit cell size: $L = 25\text{mm}$
-- Z-filter half-width: $2.5\text{mm}$
-- Tile: $3 \times 3 \times 1$ cells
-- Variants: $z = 0$, $z = L/8$, $z = L/4$
-
-#### C15 Parameters
-- Unit cell size: $L = 50\text{mm}$ (doubled to reveal detail)
-- Z-filter half-width: $5.0\text{mm}$
-- Tile: $2 \times 2 \times 1$ cells
-- Variants: $z = 0$, $z = L/16$, $z = L/8$
+![A15 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/a15_previews.png)
 
 ---
 
-## 3. File & Folder Structure
+## 2. C15 Crystal Structure (Laves Phase)
+3 sequential Z-offsets ($z=0$, $z=L/16$, $z=L/8$) showing the evolution of the Frank-Kasper polyhedral network:
 
-```
-outputs/Coasters/
-├── TPMS/
-│   ├── Gyroid/Circle/   Gyroid_Framed_Circle.stl, Gyroid_Unframed_Circle.stl, ...
-│   ├── Diamond/
-│   ├── Lidinoid/
-│   ├── Neovius/
-│   └── Split-P/
-├── Struts/
-│   ├── A15/Circle/      v1_Framed_Circle.stl, v2_..., v3_...
-│   ├── C15/Circle/      v1_Framed_Circle.stl, v2_..., v3_...
-│   ├── Sq_Grid/
-│   ├── Sq_Icosahedral/
-│   ├── Sq_Kelvin/
-│   ├── Sq_Tesseract/
-│   ├── Tri_Icosahedral/
-│   ├── Tri_Kelvin/
-│   ├── Tri_Rhombic/
-│   ├── Tri_Tesseract/
-│   ├── Tri_Tetrahedral/
-│   └── Voronoi/Circle/  large_v1_..., large_v2_..., small_v1_..., ...
-├── tpms_previews.png
-├── voronoi_sparse_previews.png
-├── voronoi_dense_previews.png
-├── explicit_tri_previews.png
-├── explicit_square_previews.png
-├── a15_previews.png
-└── c15_previews.png
-```
-
-**File naming convention:** `[variant]_[Framed|Unframed]_[Circle|Hexagon|Rectangle].stl`
+![C15 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/c15_previews.png)
 
 ---
 
-## 4. 2D Preview Generation
+## 3. Voroni Dense
+High-density Voronoi patterns (100 seed points) displaying versions `small_v1`, `small_v2`, and `small_v3`:
 
-Preview PNG figures were generated by slicing each actual STL file at $Z = 0$ using `trimesh.section()`, then plotting the resulting cross-section outlines with `matplotlib`. This guarantees the previews represent exactly what is in the physical 3D file.
-
-**Script:** [`generate_all_previews_from_stl.py`](file:///C:/Users/ehunt/.gemini/antigravity/brain/ec7d534e-8069-4ab3-a613-837f39a53621/scratch/generate_all_previews_from_stl.py)
-
-The TPMS figure contains two rows:
-- **Row 1**: $Z = 0$ (mid-plane of the 5mm coaster)
-- **Row 2**: $Z = 2.4\text{mm}$ (near the top face, showing how the geometry shifts through the height)
+![Voroni Dense 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voronoi_dense_previews.png)
 
 ---
 
-## 5. Previews
+## 4. Voroni Sparse
+Low-density organic cellular tessellations (`large_v1`, `large_v2`, `large_v3`, `large_v4`) in a 2x2 grid:
 
-### TPMS
-![TPMS](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/tpms_previews.png)
-
-### Voronoi Sparse
-![Voronoi Sparse](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/voronoi_sparse_previews.png)
-
-### Voronoi Dense
-![Voronoi Dense](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/voronoi_dense_previews.png)
-
-### Explicit Tri
-![Explicit Tri](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/explicit_tri_previews.png)
-
-### Explicit Square
-![Explicit Square](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/explicit_square_previews.png)
-
-### A15 Crystal Structure
-![A15](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/a15_previews.png)
-
-### C15 Crystal Structure (Laves Phase)
-![C15](C:/Users/ehunt/OneDrive/Documents/Python Scripts/Graphite/outputs/Coasters/c15_previews.png)
+![Voroni Sparse 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voronoi_sparse_previews.png)
 
 ---
 
-## 6. Key Scripts
+## 5. Explicit Square Lattices
+Orthogonal and tilted strut configurations (`Sq_Grid`, `Sq_Icosahedral`, `Sq_Kelvin`, `Sq_Tesseract`) in a 2x2 grid:
 
-| Script | Purpose |
-|---|---|
-| [`generate_coasters.py`](file:///C:/Users/ehunt/.gemini/antigravity/brain/ec7d534e-8069-4ab3-a613-837f39a53621/scratch/generate_coasters.py) | Generates all crystal structure (A15/C15) STL coasters via 2D projection + extrusion |
-| [`generate_all_previews_from_stl.py`](file:///C:/Users/ehunt/.gemini/antigravity/brain/ec7d534e-8069-4ab3-a613-837f39a53621/scratch/generate_all_previews_from_stl.py) | Generates the 7 preview PNG figures by slicing STL files at Z = 0 |
-| [`2d_lattice_extrusion_documentation.md`](file:///C:/Users/ehunt/.gemini/antigravity/brain/ec7d534e-8069-4ab3-a613-837f39a53621/2d_lattice_extrusion_documentation.md) | Technical deep-dive on the 2D projection pipeline |
-| [`coaster_collection_description.md`](file:///C:/Users/ehunt/.gemini/antigravity/brain/ec7d534e-8069-4ab3-a613-837f39a53621/coaster_collection_description.md) | Upload description for 3D print hosting sites |
+![Explicit Square 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_square_previews.png)
+
+---
+
+## 6. Explicit Triangle Lattices
+5 triangular topologies (`Tri_Tetrahedral`, `Tri_Icosahedral`, `Tri_Kelvin` on top; `Tri_Tesseract`, `Tri_Rhombic` centered on bottom):
+
+![Explicit Tri 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_tri_previews.png)
+
+---
+
+## 7. TPMS (Triply Periodic Minimal Surfaces)
+Continuous minimal surface slices ($Z = 0.0$ on Row 1, Neovius dual slices centered on Row 2, $Z = 2.4\text{mm}$ on Row 3):
+
+![TPMS 2D-preview](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/tpms_previews.png)
