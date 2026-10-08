@@ -4,6 +4,7 @@ Generate deliverable presentation figures for the 7 coaster families.
 
 Specifications:
 - Canvas aspect ratio: 1024:765 (~1.3386), rendered at 2048 x 1530 px (2x resolution).
+- Maximized coaster size: coasters take up maximum space without overlapping.
 - High contrast: Deep solid carbon (#141416) on clean studio neutral (#F8F9FA).
 - Realistic soft drop shadow under each coaster for product render elevation.
 - At most 3 coasters wide, at most 3 coasters tall.
@@ -46,15 +47,18 @@ SOLID_RGBA = (20, 20, 22, 255)
 
 # Fonts
 try:
-    TITLE_FONT = ImageFont.truetype("segoeuib.ttf", 64)
-    LABEL_FONT = ImageFont.truetype("segoeui.ttf", 34)
+    TITLE_FONT = ImageFont.truetype("segoeuib.ttf", 60)
+    LABEL_FONT = ImageFont.truetype("segoeui.ttf", 36)
+    LABEL_FONT_SMALL = ImageFont.truetype("segoeui.ttf", 30)
 except Exception:
     try:
-        TITLE_FONT = ImageFont.truetype("arialbd.ttf", 64)
-        LABEL_FONT = ImageFont.truetype("arial.ttf", 34)
+        TITLE_FONT = ImageFont.truetype("arialbd.ttf", 60)
+        LABEL_FONT = ImageFont.truetype("arial.ttf", 36)
+        LABEL_FONT_SMALL = ImageFont.truetype("arial.ttf", 30)
     except Exception:
         TITLE_FONT = ImageFont.load_default()
         LABEL_FONT = ImageFont.load_default()
+        LABEL_FONT_SMALL = ImageFont.load_default()
 
 
 # =====================================================================
@@ -240,7 +244,7 @@ def get_tpms_image(lattice_type, z_val, size_px=500):
 # 2. Rendering & Drop Shadow Engine
 # =====================================================================
 
-def render_polygon_to_image(poly, size_px=500):
+def render_polygon_to_image(poly, size_px=650):
     """Render Shapely polygon to transparent RGBA image with anti-aliasing."""
     dpi = 120
     fig_size = size_px / dpi
@@ -260,7 +264,7 @@ def render_polygon_to_image(poly, size_px=500):
     return Image.fromarray(rgba, mode="RGBA").resize((size_px, size_px), Image.Resampling.LANCZOS)
 
 
-def add_drop_shadow(coaster_img, blur_radius=18, offset_y=16, shadow_opacity=0.35):
+def add_drop_shadow(coaster_img, blur_radius=20, offset_y=16, shadow_opacity=0.35):
     """Add diffuse Gaussian drop shadow under coaster image."""
     w, h = coaster_img.size
     pad = blur_radius * 3
@@ -291,13 +295,14 @@ def add_drop_shadow(coaster_img, blur_radius=18, offset_y=16, shadow_opacity=0.3
 def compose_deliverable_canvas(
     title_text,
     items,  # list of (label, image)
-    layout_rows,  # list of counts per row, e.g. [3] or [2, 2] or [3, 2] or [3, 2, 3]
-    coaster_size_px=500,
-    gap_x=100,
-    gap_y=80,
+    layout_rows,  # list of counts per row
+    coaster_size_px=580,
+    gap_x=60,
+    gap_y=50,
+    font_for_labels=LABEL_FONT,
 ):
     """
-    Assemble the complete deliverable canvas with title, coaster drop shadows, and labels.
+    Assemble the complete deliverable canvas with maximized coaster sizes.
     Every row is centered horizontally around CANVAS_W / 2.
     The entire grid is centered vertically between the header rule and the canvas bottom.
     """
@@ -308,20 +313,20 @@ def compose_deliverable_canvas(
     title_bbox = draw.textbbox((0, 0), title_text, font=TITLE_FONT)
     title_w = title_bbox[2] - title_bbox[0]
     title_x = (CANVAS_W - title_w) // 2
-    title_y = 70
+    title_y = 50
     draw.text((title_x, title_y), title_text, font=TITLE_FONT, fill=(15, 23, 42, 255))
     
     # Header Accent Rule
-    rule_y = title_y + (title_bbox[3] - title_bbox[1]) + 20
-    draw.line([(CANVAS_W // 2 - 140, rule_y), (CANVAS_W // 2 + 140, rule_y)], fill=(203, 213, 225, 255), width=3)
+    rule_y = title_y + (title_bbox[3] - title_bbox[1]) + 16
+    draw.line([(CANVAS_W // 2 - 160, rule_y), (CANVAS_W // 2 + 160, rule_y)], fill=(203, 213, 225, 255), width=3)
     
     num_rows = len(layout_rows)
-    content_top = rule_y + 40
-    content_bottom = CANVAS_H - 50
+    content_top = rule_y + 30
+    content_bottom = CANVAS_H - 40
     available_h = content_bottom - content_top
     
     # Row unit height = coaster_size_px + label_height + padding
-    label_h = 50
+    label_h = 45
     row_unit_h = coaster_size_px + label_h
     total_grid_h = num_rows * row_unit_h + (num_rows - 1) * gap_y
     
@@ -357,32 +362,33 @@ def compose_deliverable_canvas(
             canvas.paste(shadowed_img, (paste_x, paste_y), shadowed_img)
             
             # Label below coaster
-            lbl_bbox = draw.textbbox((0, 0), label, font=LABEL_FONT)
+            lbl_bbox = draw.textbbox((0, 0), label, font=font_for_labels)
             lbl_w = lbl_bbox[2] - lbl_bbox[0]
             lbl_x = int(coaster_cx - lbl_w / 2.0)
-            lbl_y = int(coaster_cy + coaster_size_px / 2.0 + 16)
-            draw.text((lbl_x, lbl_y), label, font=LABEL_FONT, fill=(51, 65, 85, 255))
+            lbl_y = int(coaster_cy + coaster_size_px / 2.0 + 14)
+            draw.text((lbl_x, lbl_y), label, font=font_for_labels, fill=(51, 65, 85, 255))
             
     return canvas.convert("RGB")
 
 
 # =====================================================================
-# 4. Deliverable Figure Builders
+# 4. Deliverable Figure Builders (Maximized Scale)
 # =====================================================================
 
 def make_a15_figure():
-    print("Building A15 deliverable figure...")
+    print("Building A15 deliverable figure (maximized size)...")
     items = [
-        ("A15_v1", render_polygon_to_image(get_a15_polygon(0.0), 540)),
-        ("A15_v2", render_polygon_to_image(get_a15_polygon(0.125), 540)),
-        ("A15_v3", render_polygon_to_image(get_a15_polygon(0.25), 540)),
+        ("A15_v1", render_polygon_to_image(get_a15_polygon(0.0), 650)),
+        ("A15_v2", render_polygon_to_image(get_a15_polygon(0.125), 650)),
+        ("A15_v3", render_polygon_to_image(get_a15_polygon(0.25), 650)),
     ]
     canvas = compose_deliverable_canvas(
         "A15 2D-preview (Z = 0)",
         items,
         layout_rows=[3],
-        coaster_size_px=520,
-        gap_x=120,
+        coaster_size_px=610,
+        gap_x=55,
+        font_for_labels=LABEL_FONT,
     )
     out_path = OUTPUT_DIR / "a15_previews.png"
     canvas.save(out_path, quality=95)
@@ -390,18 +396,19 @@ def make_a15_figure():
 
 
 def make_c15_figure():
-    print("Building C15 deliverable figure...")
+    print("Building C15 deliverable figure (maximized size)...")
     items = [
-        ("C15_v1", render_polygon_to_image(get_c15_polygon(0.0), 540)),
-        ("C15_v2", render_polygon_to_image(get_c15_polygon(0.0625), 540)),
-        ("C15_v3", render_polygon_to_image(get_c15_polygon(0.125), 540)),
+        ("C15_v1", render_polygon_to_image(get_c15_polygon(0.0), 650)),
+        ("C15_v2", render_polygon_to_image(get_c15_polygon(0.0625), 650)),
+        ("C15_v3", render_polygon_to_image(get_c15_polygon(0.125), 650)),
     ]
     canvas = compose_deliverable_canvas(
         "C15 2D-preview (Z = 0)",
         items,
         layout_rows=[3],
-        coaster_size_px=520,
-        gap_x=120,
+        coaster_size_px=610,
+        gap_x=55,
+        font_for_labels=LABEL_FONT,
     )
     out_path = OUTPUT_DIR / "c15_previews.png"
     canvas.save(out_path, quality=95)
@@ -409,18 +416,19 @@ def make_c15_figure():
 
 
 def make_voronoi_dense_figure():
-    print("Building Voronoi Dense deliverable figure...")
+    print("Building Voronoi Dense deliverable figure (maximized size)...")
     items = [
-        ("small_v1", render_polygon_to_image(get_voronoi_polygon(100, 42), 540)),
-        ("small_v2", render_polygon_to_image(get_voronoi_polygon(100, 43), 540)),
-        ("small_v3", render_polygon_to_image(get_voronoi_polygon(100, 44), 540)),
+        ("small_v1", render_polygon_to_image(get_voronoi_polygon(100, 42), 650)),
+        ("small_v2", render_polygon_to_image(get_voronoi_polygon(100, 43), 650)),
+        ("small_v3", render_polygon_to_image(get_voronoi_polygon(100, 44), 650)),
     ]
     canvas = compose_deliverable_canvas(
         "Voroni Dense 2D-preview (Z = 0)",
         items,
         layout_rows=[3],
-        coaster_size_px=520,
-        gap_x=120,
+        coaster_size_px=610,
+        gap_x=55,
+        font_for_labels=LABEL_FONT,
     )
     out_path = OUTPUT_DIR / "voronoi_dense_previews.png"
     canvas.save(out_path, quality=95)
@@ -428,20 +436,21 @@ def make_voronoi_dense_figure():
 
 
 def make_voronoi_sparse_figure():
-    print("Building Voronoi Sparse deliverable figure...")
+    print("Building Voronoi Sparse deliverable figure (maximized size)...")
     items = [
-        ("large_v1", render_polygon_to_image(get_voronoi_polygon(50, 42), 480)),
-        ("large_v2", render_polygon_to_image(get_voronoi_polygon(50, 43), 480)),
-        ("large_v3", render_polygon_to_image(get_voronoi_polygon(50, 44), 480)),
-        ("large_v4", render_polygon_to_image(get_voronoi_polygon(50, 45), 480)),
+        ("large_v1", render_polygon_to_image(get_voronoi_polygon(50, 42), 620)),
+        ("large_v2", render_polygon_to_image(get_voronoi_polygon(50, 43), 620)),
+        ("large_v3", render_polygon_to_image(get_voronoi_polygon(50, 44), 620)),
+        ("large_v4", render_polygon_to_image(get_voronoi_polygon(50, 45), 620)),
     ]
     canvas = compose_deliverable_canvas(
         "Voroni Sparse 2D-preview (Z = 0)",
         items,
         layout_rows=[2, 2],
-        coaster_size_px=460,
-        gap_x=180,
-        gap_y=90,
+        coaster_size_px=580,
+        gap_x=130,
+        gap_y=45,
+        font_for_labels=LABEL_FONT,
     )
     out_path = OUTPUT_DIR / "voronoi_sparse_previews.png"
     canvas.save(out_path, quality=95)
@@ -449,19 +458,20 @@ def make_voronoi_sparse_figure():
 
 
 def make_explicit_square_figure():
-    print("Building Explicit Square deliverable figure...")
+    print("Building Explicit Square deliverable figure (maximized size)...")
     topos = ["Grid", "Icosahedral", "Kelvin", "Tesseract"]
     items = [
-        (f"Sq_{topo}", render_polygon_to_image(get_sq_polygon(topo), 480))
+        (f"Sq_{topo}", render_polygon_to_image(get_sq_polygon(topo), 620))
         for topo in topos
     ]
     canvas = compose_deliverable_canvas(
         "Explicit Square 2D-preview (Z = 0)",
         items,
         layout_rows=[2, 2],
-        coaster_size_px=460,
-        gap_x=180,
-        gap_y=90,
+        coaster_size_px=580,
+        gap_x=130,
+        gap_y=45,
+        font_for_labels=LABEL_FONT,
     )
     out_path = OUTPUT_DIR / "explicit_square_previews.png"
     canvas.save(out_path, quality=95)
@@ -469,19 +479,20 @@ def make_explicit_square_figure():
 
 
 def make_explicit_tri_figure():
-    print("Building Explicit Tri deliverable figure...")
+    print("Building Explicit Tri deliverable figure (maximized size)...")
     topos = ["Tetrahedral", "Icosahedral", "Kelvin", "Tesseract", "Rhombic"]
     items = [
-        (f"Tri_{topo}", render_polygon_to_image(get_tri_polygon(topo), 460))
+        (f"Tri_{topo}", render_polygon_to_image(get_tri_polygon(topo), 600))
         for topo in topos
     ]
     canvas = compose_deliverable_canvas(
         "Explicit Tri 2D-preview (Z = 0)",
         items,
         layout_rows=[3, 2],
-        coaster_size_px=440,
-        gap_x=110,
-        gap_y=80,
+        coaster_size_px=560,
+        gap_x=55,
+        gap_y=45,
+        font_for_labels=LABEL_FONT,
     )
     out_path = OUTPUT_DIR / "explicit_tri_previews.png"
     canvas.save(out_path, quality=95)
@@ -489,25 +500,26 @@ def make_explicit_tri_figure():
 
 
 def make_tpms_figure():
-    print("Building TPMS deliverable figure (8 designs, Split-P dropped)...")
+    print("Building TPMS deliverable figure (maximized size, 8 designs)...")
     # 4 types x 2 heights (Z = 0.0 and Z = 2.4 mm)
     items = [
-        ("Gyroid (Z=0)", get_tpms_image("Gyroid", 0.0, 360)),
-        ("Diamond (Z=0)", get_tpms_image("Diamond", 0.0, 360)),
-        ("Lidinoid (Z=0)", get_tpms_image("Lidinoid", 0.0, 360)),
-        ("Neovius (Z=0)", get_tpms_image("Neovius", 0.0, 360)),
-        ("Neovius (Z=2.4)", get_tpms_image("Neovius", 2.4, 360)),
-        ("Gyroid (Z=2.4)", get_tpms_image("Gyroid", 2.4, 360)),
-        ("Diamond (Z=2.4)", get_tpms_image("Diamond", 2.4, 360)),
-        ("Lidinoid (Z=2.4)", get_tpms_image("Lidinoid", 2.4, 360)),
+        ("Gyroid (Z=0)", get_tpms_image("Gyroid", 0.0, 420)),
+        ("Diamond (Z=0)", get_tpms_image("Diamond", 0.0, 420)),
+        ("Lidinoid (Z=0)", get_tpms_image("Lidinoid", 0.0, 420)),
+        ("Neovius (Z=0)", get_tpms_image("Neovius", 0.0, 420)),
+        ("Neovius (Z=2.4)", get_tpms_image("Neovius", 2.4, 420)),
+        ("Gyroid (Z=2.4)", get_tpms_image("Gyroid", 2.4, 420)),
+        ("Diamond (Z=2.4)", get_tpms_image("Diamond", 2.4, 420)),
+        ("Lidinoid (Z=2.4)", get_tpms_image("Lidinoid", 2.4, 420)),
     ]
     canvas = compose_deliverable_canvas(
         "TPMS 2D-preview (Z = 0 & Z = 2.4mm)",
         items,
         layout_rows=[3, 2, 3],
-        coaster_size_px=330,
-        gap_x=80,
-        gap_y=40,
+        coaster_size_px=390,
+        gap_x=70,
+        gap_y=25,
+        font_for_labels=LABEL_FONT_SMALL,
     )
     out_path = OUTPUT_DIR / "tpms_previews.png"
     canvas.save(out_path, quality=95)
@@ -515,7 +527,7 @@ def make_tpms_figure():
 
 
 def main():
-    print("Generating all 7 high-contrast deliverable figures...")
+    print("Generating all 7 maximized deliverable figures...")
     make_a15_figure()
     make_c15_figure()
     make_voronoi_dense_figure()
