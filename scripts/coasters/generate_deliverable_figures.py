@@ -8,10 +8,13 @@ Figures:
 3. "Explicit"  - 9 coasters (3x3 grid combining all Triangle and Square lattices)
 4. "TPMS"      - 8 coasters (Row 1: Z=0 Gyroid, Diamond, Lidinoid; Row 2: Neovius dual slices; Row 3: Z=2.4)
 
-Rules:
-- Canvas aspect ratio: 1024:765 (~1.3386), rendered at 2048 x 1530 px (2x resolution).
-- Center-to-center spacing of each coaster equal to 1.25 x diameter (dx = dy = 1.25 * D).
-- Coaster titles placed directly above each coaster, sized 3x as large.
+Rules & Specifications:
+- Canvas aspect ratio: 1024:765 (~1.3386), rendered at 2048 x 1530 px high resolution.
+- Titles reduced by 25% (Main header: 51 pt; Coaster headers: 44 pt / 34 pt).
+- Center-to-center spacing: pitch = 1.2 * diameter (dx = dy = 1.2 * D).
+- 2-row layouts (C15/A15 and Voroni): Coasters sized to have exactly a 10% margin on the sides (D = 482 px, pitch = 578.4 px).
+- 3-row layouts (Explicit and TPMS): Spacing = 1.2 * D, vertically centered.
+- Faithful cross-sections matching the true 3D models with 1.0mm strut width and 3.175mm circular frame.
 - High contrast: Deep solid carbon (#141416) on clean studio neutral (#F8F9FA).
 - Realistic soft drop shadow under each coaster for product elevation.
 """
@@ -24,8 +27,8 @@ from PIL import Image, ImageFilter, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 from shapely.geometry import Point, LineString, Polygon
 from shapely.ops import unary_union
-from scipy.spatial import cKDTree, Voronoi
 import shapely.plotting as spl
+from scipy.spatial import cKDTree, Voronoi
 
 # Ensure repo root is on sys.path
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,12 +36,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from graphite.math.tpms import evaluate_tpms_phase
-from scripts.coasters.tri_sq_patterns import (
-    get_triangle_segments,
-    get_square_segments,
-    COASTER_TRI_R,
-    COASTER_SQ_SIDE,
-)
 
 OUTPUT_DIR = REPO_ROOT / "outputs" / "Coasters"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,26 +43,24 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 CANVAS_W = 2048
 CANVAS_H = 1530
 BG_COLOR = (248, 249, 250, 255)
-SOLID_COLOR = "#141416"
 SOLID_RGBA = (20, 20, 22, 255)
 
-# Fonts
+# Fonts (Reduced by 25%: 68 -> 51)
 try:
-    MAIN_TITLE_FONT = ImageFont.truetype("segoeuib.ttf", 68)
+    MAIN_TITLE_FONT = ImageFont.truetype("segoeuib.ttf", 51)
 except Exception:
     try:
-        MAIN_TITLE_FONT = ImageFont.truetype("arialbd.ttf", 68)
+        MAIN_TITLE_FONT = ImageFont.truetype("arialbd.ttf", 51)
     except Exception:
         MAIN_TITLE_FONT = ImageFont.load_default()
 
 
-def get_coaster_title_font(text, max_w, default_size=52):
+def get_coaster_title_font(text, max_w, default_size=42):
     """
-    Get bold font scaled as large as possible (~3x original size)
-    while ensuring the text does not exceed max_w.
+    Get bold font reduced by 25%, fitting within max_w.
     """
     size = default_size
-    while size >= 24:
+    while size >= 18:
         for font_name in ["segoeuib.ttf", "arialbd.ttf"]:
             try:
                 font = ImageFont.truetype(font_name, size)
@@ -78,16 +73,35 @@ def get_coaster_title_font(text, max_w, default_size=52):
                 continue
         size -= 2
     try:
-        return ImageFont.truetype("arialbd.ttf", 24)
+        return ImageFont.truetype("arialbd.ttf", 18)
     except Exception:
         return ImageFont.load_default()
 
 
 # =====================================================================
-# 1. Geometry Generators (Shapely Polygons)
+# 1. Geometry Generators (Faithful to True 3D STL Models)
 # =====================================================================
 
-def segments_to_coaster_polygon(segments, strut_width=1.2, r_outer=50.0, r_inner=46.825):
+def unique_segments(segments, tol=1e-3):
+    unique = []
+    for seg in segments:
+        p1, p2 = seg
+        if p1[0] < p2[0] or (abs(p1[0] - p2[0]) < tol and p1[1] < p2[1]):
+            s_seg = (p1, p2)
+        else:
+            s_seg = (p2, p1)
+        duplicate = False
+        for u_seg in unique:
+            u_p1, u_p2 = u_seg
+            if (np.linalg.norm(s_seg[0] - u_p1) < tol and np.linalg.norm(s_seg[1] - u_p2) < tol):
+                duplicate = True
+                break
+        if not duplicate:
+            unique.append(s_seg)
+    return unique
+
+
+def segments_to_coaster_polygon(segments, strut_width=1.0, r_outer=50.0, r_inner=46.825):
     """Convert 2D line segments to a framed circular coaster polygon."""
     strut_polys = [
         LineString([p1, p2]).buffer(strut_width / 2.0, cap_style=2)
@@ -102,8 +116,7 @@ def segments_to_coaster_polygon(segments, strut_width=1.2, r_outer=50.0, r_inner
     return clipped_lattice.union(frame_poly)
 
 
-# --- A15 Lattice ---
-def _tile_basis(basis_pts, nx, ny, nz, cell_size):
+def tile_basis(basis_pts, nx, ny, nz, cell_size):
     tiled_pts = []
     for i in range(-nx, nx + 1):
         for j in range(-ny, ny + 1):
@@ -116,7 +129,63 @@ def _tile_basis(basis_pts, nx, ny, nz, cell_size):
     return np.unique(np.round(tiled_pts, 8), axis=0)
 
 
-def generate_a15_edges(cell_size=25.0):
+# --- C15 Lattice (Frank-Kasper Laves Phase) ---
+def generate_c15_lattice(nx=2, ny=2, nz=1, cell_size=50.0):
+    fcc_translations = np.array([
+        [0.0, 0.0, 0.0],
+        [0.5, 0.5, 0.0],
+        [0.5, 0.0, 0.5],
+        [0.0, 0.5, 0.5]
+    ], dtype=np.float64)
+    
+    a_base = np.array([
+        [0.0, 0.0, 0.0],
+        [0.25, 0.25, 0.25]
+    ], dtype=np.float64)
+    a_basis = [((ab + trans) % 1.0) for ab in a_base for trans in fcc_translations]
+    a_basis = np.unique(np.round(a_basis, 8), axis=0)
+    
+    b_base = np.array([
+        [0.625, 0.625, 0.625],
+        [0.625, 0.875, 0.875],
+        [0.875, 0.625, 0.875],
+        [0.875, 0.875, 0.625]
+    ], dtype=np.float64)
+    b_basis = [((bb + trans) % 1.0) for bb in b_base for trans in fcc_translations]
+    b_basis = np.unique(np.round(b_basis, 8), axis=0)
+    
+    basis = np.vstack((a_basis, b_basis))
+    pts = tile_basis(basis, nx, ny, nz, cell_size)
+    cutoff = 0.45 * cell_size
+    tree = cKDTree(pts)
+    pairs = tree.query_pairs(r=cutoff)
+    edges = [(u, v) for u, v in pairs if np.linalg.norm(pts[u] - pts[v]) > 1e-5]
+    return pts, edges
+
+
+def get_c15_polygon(z_offset_mm):
+    cell_size = 50.0
+    pts, edges = generate_c15_lattice(nx=2, ny=2, nz=1, cell_size=cell_size)
+    z_limit = 5.0
+    pts_shifted = pts.copy()
+    pts_shifted[:, 2] -= z_offset_mm
+    
+    segments = []
+    for u, v in edges:
+        p0 = pts_shifted[u]
+        p1 = pts_shifted[v]
+        z_min = min(p0[2], p1[2])
+        z_max = max(p0[2], p1[2])
+        if z_min <= z_limit and z_max >= -z_limit:
+            p0_2d, p1_2d = p0[:2], p1[:2]
+            if np.linalg.norm(p0_2d - p1_2d) > 1e-4:
+                segments.append((p0_2d, p1_2d))
+    segments = unique_segments(segments)
+    return segments_to_coaster_polygon(segments, strut_width=1.0)
+
+
+# --- A15 Lattice ---
+def generate_a15_lattice(nx=3, ny=3, nz=1, cell_size=25.0):
     basis = np.array([
         [0.0, 0.0, 0.0],
         [0.5, 0.5, 0.5],
@@ -125,125 +194,218 @@ def generate_a15_edges(cell_size=25.0):
         [0.5, 0.25, 0.0],
         [0.5, 0.75, 0.0],
         [0.0, 0.5, 0.25],
-        [0.0, 0.5, 0.75],
+        [0.0, 0.5, 0.75]
     ], dtype=np.float64)
-    pts = _tile_basis(basis, 3, 3, 1, cell_size)
+    pts = tile_basis(basis, nx, ny, nz, cell_size)
+    cutoff = 0.62 * cell_size
     tree = cKDTree(pts)
-    pairs = tree.query_pairs(r=0.62 * cell_size)
+    pairs = tree.query_pairs(r=cutoff)
     edges = [(u, v) for u, v in pairs if np.linalg.norm(pts[u] - pts[v]) > 1e-5]
     return pts, edges
 
 
-def get_a15_polygon(z_offset_frac):
+def get_a15_polygon(z_offset_mm):
     cell_size = 25.0
-    pts, edges = generate_a15_edges(cell_size)
+    pts, edges = generate_a15_lattice(nx=3, ny=3, nz=1, cell_size=cell_size)
     z_limit = 2.5
-    z_offset = z_offset_frac * cell_size
     pts_shifted = pts.copy()
-    pts_shifted[:, 2] -= z_offset
+    pts_shifted[:, 2] -= z_offset_mm
     
     segments = []
     for u, v in edges:
-        p0, p1 = pts_shifted[u], pts_shifted[v]
-        z_min, z_max = min(p0[2], p1[2]), max(p0[2], p1[2])
+        p0 = pts_shifted[u]
+        p1 = pts_shifted[v]
+        z_min = min(p0[2], p1[2])
+        z_max = max(p0[2], p1[2])
         if z_min <= z_limit and z_max >= -z_limit:
             p0_2d, p1_2d = p0[:2], p1[:2]
             if np.linalg.norm(p0_2d - p1_2d) > 1e-4:
                 segments.append((p0_2d, p1_2d))
-    return segments_to_coaster_polygon(segments, strut_width=1.2)
-
-
-# --- C15 Lattice ---
-def generate_c15_edges(cell_size=50.0):
-    fcc_trans = np.array([
-        [0.0, 0.0, 0.0],
-        [0.5, 0.5, 0.0],
-        [0.5, 0.0, 0.5],
-        [0.0, 0.5, 0.5],
-    ], dtype=np.float64)
-    a_base = np.array([[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]], dtype=np.float64)
-    a_basis = [((ab + t) % 1.0) for ab in a_base for t in fcc_trans]
-    b_base = np.array([
-        [0.625, 0.625, 0.625],
-        [0.625, 0.875, 0.875],
-        [0.875, 0.625, 0.875],
-        [0.875, 0.875, 0.625],
-    ], dtype=np.float64)
-    b_basis = [((bb + t) % 1.0) for bb in b_base for t in fcc_trans]
-    
-    a_pts = _tile_basis(a_basis, 2, 2, 1, cell_size)
-    b_pts = _tile_basis(b_basis, 2, 2, 1, cell_size)
-    
-    tree_a = cKDTree(a_pts)
-    pairs_aa = tree_a.query_pairs(r=0.44 * cell_size)
-    
-    tree_b = cKDTree(b_pts)
-    pairs_ab = tree_a.query_ball_tree(tree_b, r=0.42 * cell_size)
-    
-    edges_ab = []
-    for u, neighbors in enumerate(pairs_ab):
-        for v in neighbors:
-            edges_ab.append((a_pts[u], b_pts[v]))
-            
-    edges_aa = [(a_pts[u], a_pts[v]) for u, v in pairs_aa]
-    all_edges = edges_aa + edges_ab
-    return all_edges
-
-
-def get_c15_polygon(z_offset_frac):
-    cell_size = 50.0
-    all_edges = generate_c15_edges(cell_size)
-    z_limit = 5.0
-    z_offset = z_offset_frac * cell_size
-    
-    segments = []
-    for p0_orig, p1_orig in all_edges:
-        p0 = p0_orig.copy()
-        p1 = p1_orig.copy()
-        p0[2] -= z_offset
-        p1[2] -= z_offset
-        z_min, z_max = min(p0[2], p1[2]), max(p0[2], p1[2])
-        if z_min <= z_limit and z_max >= -z_limit:
-            p0_2d, p1_2d = p0[:2], p1[:2]
-            if np.linalg.norm(p0_2d - p1_2d) > 1e-4:
-                segments.append((p0_2d, p1_2d))
-    return segments_to_coaster_polygon(segments, strut_width=1.2)
+    segments = unique_segments(segments)
+    return segments_to_coaster_polygon(segments, strut_width=1.0)
 
 
 # --- Voronoi ---
-def get_voronoi_polygon(n_pts, seed, strut_width=1.0):
+def get_voronoi_polygon(num_points_in_coaster, seed):
+    extended_size = 160.0
+    area_ratio = (extended_size / 100.0) ** 2
+    total_points = int(round(num_points_in_coaster * area_ratio))
+    
     np.random.seed(seed)
-    r = np.sqrt(np.random.uniform(0, 48.0**2, n_pts))
-    theta = np.random.uniform(0, 2 * np.pi, n_pts)
-    pts = np.column_stack([r * np.cos(theta), r * np.sin(theta)])
+    pts = np.random.uniform(-extended_size / 2.0, extended_size / 2.0, size=(total_points, 2))
     
-    # Boundary points to bound outer cells
-    b_theta = np.linspace(0, 2 * np.pi, 32, endpoint=False)
-    b_pts = np.column_stack([60.0 * np.cos(b_theta), 60.0 * np.sin(b_theta)])
-    all_pts = np.vstack([pts, b_pts])
-    
-    vor = Voronoi(all_pts)
+    vor = Voronoi(pts)
     segments = []
-    for p1_idx, p2_idx in vor.ridge_vertices:
-        if p1_idx >= 0 and p2_idx >= 0:
-            segments.append((vor.vertices[p1_idx], vor.vertices[p2_idx]))
-    return segments_to_coaster_polygon(segments, strut_width=strut_width)
+    for ridge in vor.ridge_vertices:
+        if -1 not in ridge:
+            p1 = vor.vertices[ridge[0]]
+            p2 = vor.vertices[ridge[1]]
+            segments.append((p1, p2))
+            
+    segments = unique_segments(segments)
+    return segments_to_coaster_polygon(segments, strut_width=1.0)
 
 
-# --- Explicit Tri & Sq ---
+# --- Triangle Lattices ---
+def get_triangle_segments(topo, s, h):
+    triangles = []
+    def get_p(i, j):
+        cx = i * s + (j % 2) * (s / 2)
+        cy = j * h
+        return np.array([cx, cy])
+        
+    for j in range(-7, 7):
+        for i in range(-7, 7):
+            p_ij = get_p(i, j)
+            p_ip1_j = get_p(i+1, j)
+            p_ijp1 = get_p(i, j+1)
+            p_ip1_jp1 = get_p(i+1, j+1)
+            if j % 2 == 0:
+                triangles.append(np.array([p_ij, p_ip1_j, p_ijp1]))
+                triangles.append(np.array([p_ip1_j, p_ip1_jp1, p_ijp1]))
+            else:
+                triangles.append(np.array([p_ij, p_ip1_j, p_ip1_jp1]))
+                triangles.append(np.array([p_ij, p_ip1_jp1, p_ijp1]))
+                
+    segments = []
+    if topo == "Tetrahedral":
+        for tri in triangles:
+            segments.append((tri[0], tri[1]))
+            segments.append((tri[1], tri[2]))
+            segments.append((tri[2], tri[0]))
+    elif topo == "Icosahedral":
+        for tri in triangles:
+            m0 = (tri[0] + tri[1]) / 2.0
+            m1 = (tri[1] + tri[2]) / 2.0
+            m2 = (tri[2] + tri[0]) / 2.0
+            segments.append((m0, m1))
+            segments.append((m1, m2))
+            segments.append((m2, m0))
+    elif topo == "Kelvin":
+        for tri in triangles:
+            p01_a = (2*tri[0] + tri[1]) / 3.0
+            p01_b = (tri[0] + 2*tri[1]) / 3.0
+            p12_a = (2*tri[1] + tri[2]) / 3.0
+            p12_b = (tri[1] + 2*tri[2]) / 3.0
+            p20_a = (2*tri[2] + tri[0]) / 3.0
+            p20_b = (tri[2] + 2*tri[0]) / 3.0
+            segments.append((p01_a, p20_b))
+            segments.append((p20_b, p20_a))
+            segments.append((p20_a, p12_b))
+            segments.append((p12_b, p12_a))
+            segments.append((p12_a, p01_b))
+            segments.append((p01_b, p01_a))
+    elif topo == "Tesseract":
+        for tri in triangles:
+            centroid = np.mean(tri, axis=0)
+            inscribed = centroid + 0.5 * (tri - centroid)
+            segments.append((tri[0], tri[1]))
+            segments.append((tri[1], tri[2]))
+            segments.append((tri[2], tri[0]))
+            segments.append((inscribed[0], inscribed[1]))
+            segments.append((inscribed[1], inscribed[2]))
+            segments.append((inscribed[2], inscribed[0]))
+            for i in range(3):
+                segments.append((tri[i], inscribed[i]))
+    elif topo == "Rhombic":
+        centroids = [np.mean(tri, axis=0) for tri in triangles]
+        n_tri = len(triangles)
+        for i in range(n_tri):
+            c_i = centroids[i]
+            if np.linalg.norm(c_i) > 60:
+                continue
+            tri_i = triangles[i]
+            for j in range(i+1, n_tri):
+                c_j = centroids[j]
+                if np.linalg.norm(c_j) > 60:
+                    continue
+                tri_j = triangles[j]
+                shared = sum(1 for vi in tri_i for vj in tri_j if np.linalg.norm(vi - vj) < 1e-4)
+                if shared == 2:
+                    segments.append((c_i, c_j))
+    return unique_segments(segments)
+
+
 def get_tri_polygon(topo):
-    side = COASTER_TRI_R * (2.0 if topo == "Tesseract" else 1.0)
-    height = side * np.sqrt(3.0) / 2.0
-    segments = get_triangle_segments(topo, side, height)
-    return segments_to_coaster_polygon(segments, strut_width=1.3)
+    r_tri = 12.7 if topo == "Tesseract" else 6.35
+    s_tri = r_tri * np.sqrt(3.0)
+    h_tri = s_tri * np.sqrt(3.0) / 2.0
+    segments = get_triangle_segments(topo, s_tri, h_tri)
+    return segments_to_coaster_polygon(segments, strut_width=1.0)
+
+
+# --- Square Lattices ---
+def get_square_segments(topo, s):
+    squares = []
+    for row in range(-6, 7):
+        for col in range(-6, 7):
+            cx = col * s
+            cy = row * s
+            v0 = [cx - s/2, cy - s/2]
+            v1 = [cx + s/2, cy - s/2]
+            v2 = [cx + s/2, cy + s/2]
+            v3 = [cx - s/2, cy + s/2]
+            squares.append(np.array([v0, v1, v2, v3]))
+            
+    segments = []
+    if topo == "Grid":
+        for sq in squares:
+            segments.append((sq[0], sq[1]))
+            segments.append((sq[1], sq[2]))
+            segments.append((sq[2], sq[3]))
+            segments.append((sq[3], sq[0]))
+    elif topo == "Icosahedral":
+        for sq in squares:
+            m0 = (sq[0] + sq[1]) / 2.0
+            m1 = (sq[1] + sq[2]) / 2.0
+            m2 = (sq[2] + sq[3]) / 2.0
+            m3 = (sq[3] + sq[0]) / 2.0
+            segments.append((m0, m1))
+            segments.append((m1, m2))
+            segments.append((m2, m3))
+            segments.append((m3, m0))
+    elif topo == "Kelvin":
+        for sq in squares:
+            p01_a = (2*sq[0] + sq[1]) / 3.0
+            p01_b = (sq[0] + 2*sq[1]) / 3.0
+            p12_a = (2*sq[1] + sq[2]) / 3.0
+            p12_b = (sq[1] + 2*sq[2]) / 3.0
+            p23_a = (2*sq[2] + sq[3]) / 3.0
+            p23_b = (sq[2] + 2*sq[3]) / 3.0
+            p30_a = (2*sq[3] + sq[0]) / 3.0
+            p30_b = (sq[3] + 2*sq[0]) / 3.0
+            segments.append((p01_a, p30_b))
+            segments.append((p30_b, p30_a))
+            segments.append((p30_a, p23_b))
+            segments.append((p23_b, p23_a))
+            segments.append((p23_a, p12_b))
+            segments.append((p12_b, p12_a))
+            segments.append((p12_a, p01_b))
+            segments.append((p01_b, p01_a))
+    elif topo == "Tesseract":
+        for sq in squares:
+            centroid = np.mean(sq, axis=0)
+            inscribed = centroid + 0.5 * (sq - centroid)
+            segments.append((sq[0], sq[1]))
+            segments.append((sq[1], sq[2]))
+            segments.append((sq[2], sq[3]))
+            segments.append((sq[3], sq[0]))
+            segments.append((inscribed[0], inscribed[1]))
+            segments.append((inscribed[1], inscribed[2]))
+            segments.append((inscribed[2], inscribed[3]))
+            segments.append((inscribed[3], inscribed[0]))
+            for i in range(4):
+                segments.append((sq[i], inscribed[i]))
+    return unique_segments(segments)
 
 
 def get_sq_polygon(topo):
-    segments = get_square_segments(topo, COASTER_SQ_SIDE)
-    return segments_to_coaster_polygon(segments, strut_width=1.3)
+    s_sq = 25.4 if topo == "Tesseract" else 12.7
+    segments = get_square_segments(topo, s_sq)
+    return segments_to_coaster_polygon(segments, strut_width=1.0)
 
 
-# --- TPMS Binary RGBA Image (High Resolution Anti-Aliasing) ---
+# --- TPMS Geometry ---
 def sample_tpms_threshold(lattice_type, target_sf=0.33):
     n = 64
     axis = np.linspace(0, 2 * np.pi, n, endpoint=False)
@@ -251,71 +413,69 @@ def sample_tpms_threshold(lattice_type, target_sf=0.33):
     vals = np.abs(evaluate_tpms_phase(lattice_type, U, V, W)).ravel()
     vals.sort()
     idx = int(target_sf * len(vals))
-    return float(vals[idx])
+    return vals[idx]
 
 
-def get_tpms_image(lattice_type, z_val, size_px=380):
-    cell_size = 25.0
-    omega = 2.0 * np.pi / cell_size
-    n = max(size_px * 2, 800)
-    x = np.linspace(-52.0, 52.0, n)
-    y = np.linspace(-52.0, 52.0, n)
+def get_tpms_image(lattice_type, z_mm, target_size_px=360):
+    res = 512
+    dim = 50.0
+    x = np.linspace(-dim, dim, res)
+    y = np.linspace(-dim, dim, res)
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
     
+    cell_size = 25.0
+    omega = 2.0 * np.pi / cell_size
     U = X * omega
     V = Y * omega
-    W = np.full_like(X, z_val * omega)
+    W = np.full_like(X, z_mm * omega)
     
-    tau = sample_tpms_threshold(lattice_type, 0.33)
+    tau = sample_tpms_threshold(lattice_type, target_sf=0.33)
     F = evaluate_tpms_phase(lattice_type, U, V, W)
     
-    solid = (np.abs(F) <= tau) & (R <= 46.825) | ((R <= 50.0) & (R >= 46.825))
+    solid_lattice = (np.abs(F) <= tau) & (R <= 46.825)
+    solid_frame = (R <= 50.0) & (R >= 46.825)
+    solid = solid_lattice | solid_frame
     
-    rgba = np.zeros((n, n, 4), dtype=np.uint8)
-    rgba[solid] = SOLID_RGBA
-    raw_img = Image.fromarray(rgba, mode="RGBA")
-    return raw_img.resize((size_px, size_px), Image.Resampling.LANCZOS)
+    img_data = np.zeros((res, res, 4), dtype=np.uint8)
+    img_data[solid] = SOLID_RGBA
+    return Image.fromarray(img_data, mode="RGBA").resize((target_size_px, target_size_px), Image.Resampling.LANCZOS)
 
 
 # =====================================================================
-# 2. Rendering & Drop Shadow Engine
+# 2. Rendering & Drop Shadow
 # =====================================================================
 
-def render_polygon_to_image(poly, size_px=750):
-    """Render Shapely polygon to transparent RGBA image with high-res anti-aliasing."""
-    dpi = 130
-    fig_size = size_px / dpi
-    fig, ax = plt.subplots(figsize=(fig_size, fig_size), dpi=dpi)
-    fig.patch.set_alpha(0)
-    ax.patch.set_alpha(0)
+def render_polygon_to_image(poly, render_dim=750):
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=render_dim / 6.0)
+    fig.patch.set_facecolor("none")
+    ax.set_facecolor("none")
     ax.set_aspect("equal")
-    ax.set_xlim(-53, 53)
-    ax.set_ylim(-53, 53)
     ax.axis("off")
+    ax.set_xlim(-50.5, 50.5)
+    ax.set_ylim(-50.5, 50.5)
     
-    spl.plot_polygon(poly, ax=ax, facecolor=SOLID_COLOR, edgecolor="none", add_points=False)
+    spl.plot_polygon(poly, ax=ax, add_points=False, color="#141416", alpha=1.0)
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
     fig.canvas.draw()
-    rgba = np.asarray(fig.canvas.buffer_rgba())
+    rgba_buf = np.asarray(fig.canvas.buffer_rgba())
+    img = Image.fromarray(rgba_buf.copy(), mode="RGBA")
     plt.close(fig)
-    return Image.fromarray(rgba, mode="RGBA").resize((size_px, size_px), Image.Resampling.LANCZOS)
+    return img
 
 
 def add_drop_shadow(coaster_img, blur_radius=16, offset_y=12, shadow_opacity=0.28):
-    """Add diffuse Gaussian drop shadow under coaster image."""
     w, h = coaster_img.size
-    pad = blur_radius * 3
-    large_w, large_h = w + 2 * pad, h + 2 * pad
+    pad = blur_radius * 2 + offset_y
+    large_w, large_h = w + pad * 2, h + pad * 2
     
     shadow_img = Image.new("RGBA", (large_w, large_h), (0, 0, 0, 0))
     alpha = coaster_img.split()[3]
+    tinted_alpha = alpha.point(lambda p: int(p * shadow_opacity))
     
-    alpha_np = np.asarray(alpha, dtype=np.float32) * shadow_opacity
-    shadow_mask = Image.fromarray(alpha_np.astype(np.uint8), mode="L")
-    
-    tinted = Image.new("RGBA", (w, h), (15, 20, 25, 255))
-    tinted.putalpha(shadow_mask)
+    tinted = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    tinted.putalpha(tinted_alpha)
     
     shadow_img.paste(tinted, (pad, pad + offset_y))
     blurred = shadow_img.filter(ImageFilter.GaussianBlur(blur_radius))
@@ -327,61 +487,59 @@ def add_drop_shadow(coaster_img, blur_radius=16, offset_y=12, shadow_opacity=0.2
 
 
 # =====================================================================
-# 3. Canvas Composition & Placement (Center-to-Center Spacing = 1.25 x D)
+# 3. Canvas Composition & Placement
 # =====================================================================
 
 def compose_deliverable_canvas(
     title_text,
     items,  # list of (label, PIL.Image)
-    layout_rows,  # list of counts per row, e.g. [3, 3] or [3, 3, 3] or [3, 2, 3]
-    coaster_size_px=540,
-    default_label_size=56,
-    pad_above=14,
+    layout_rows,  # list of counts per row
+    coaster_size_px,
+    default_label_size=42,
+    pad_above=12,
 ):
     """
-    Assemble the complete deliverable canvas.
-    - Pitch = 1.25 * coaster_size_px (center-to-center spacing equal to 1.25 x diameter).
-    - Coaster titles placed directly above each coaster, scaled ~3x larger.
-    - Entire grid is centered vertically and each row is centered horizontally.
+    Assemble the deliverable canvas.
+    - Pitch = 1.2 * D (center-to-center spacing equal to 1.2 x diameter).
+    - Coaster titles placed directly above each coaster.
+    - Title size reduced by 25%.
     """
     canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), BG_COLOR)
     draw = ImageDraw.Draw(canvas)
     
-    # 1. Main Header
+    # 1. Main Header (Reduced by 25%)
     title_bbox = draw.textbbox((0, 0), title_text, font=MAIN_TITLE_FONT)
     title_x = int(round((CANVAS_W - (title_bbox[2] + title_bbox[0])) / 2.0))
-    title_y = 28
+    title_y = 26
     draw.text((title_x, title_y), title_text, font=MAIN_TITLE_FONT, fill=(15, 23, 42, 255))
     
-    # Bottom of main title glyphs
     title_bottom = title_y + title_bbox[3]
     
-    # 2. Grid Geometry Math (Center-to-Center = 1.25 * D)
+    # 2. Grid Geometry Math (Center-to-Center = 1.2 * D)
     D = coaster_size_px
-    pitch = 1.25 * D
+    pitch = 1.2 * D
     num_rows = len(layout_rows)
     
-    content_top = title_bottom + 24
-    content_bottom = CANVAS_H - 28
+    content_top = title_bottom + 20
+    content_bottom = CANVAS_H - 24
     available_h = content_bottom - content_top
     
-    # Sample title text height to calculate bounding box
+    # Sample title text height
     sample_font = get_coaster_title_font("Sample (Z=0)", max_w=pitch * 0.9, default_size=default_label_size)
     sample_bbox = draw.textbbox((0, 0), "Sample (Z=0)", font=sample_font)
     title_text_h = sample_bbox[3] - sample_bbox[1]
     
-    # Total grid vertical span: from top of Row 0 title to bottom of last row coaster
+    # Total grid vertical span
     H_total = (num_rows - 1) * pitch + D + pad_above + title_text_h
     
-    # Vertically center the entire grid within available vertical content space
+    # Vertically center the entire grid
     y_grid_top = content_top + max(0.0, (available_h - H_total) / 2.0)
     y0 = y_grid_top + title_text_h + pad_above + D / 2.0
     
-    # Shadow blur and offset scaled proportionally to diameter
+    # Drop shadow
     blur_rad = int(round(16 * (D / 500.0)))
     offset_y = int(round(12 * (D / 500.0)))
     
-    # Pre-render shadows for all items
     shadowed_items = []
     for label, img in items:
         scaled = img.resize((D, D), Image.Resampling.LANCZOS)
@@ -391,9 +549,7 @@ def compose_deliverable_canvas(
     item_idx = 0
     for r_idx, count_in_row in enumerate(layout_rows):
         row_cy = y0 + r_idx * pitch
-        
-        # Center this row horizontally around CANVAS_W / 2 = 1024
-        # Distance from first to last coaster in row = (count - 1) * pitch
+        # Center this row horizontally: span = (count - 1) * pitch
         row_x0 = (CANVAS_W / 2.0) - ((count_in_row - 1) * pitch / 2.0)
         
         for c_idx in range(count_in_row):
@@ -402,11 +558,9 @@ def compose_deliverable_canvas(
             
             coaster_cx = row_x0 + c_idx * pitch
             coaster_cy = row_cy
-            
-            # Coaster top edge
             coaster_top_y = coaster_cy - D / 2.0
             
-            # Paste shadowed coaster
+            # Paste coaster with shadow
             paste_x = int(round(coaster_cx - pad - D / 2.0))
             paste_y = int(round(coaster_cy - pad - D / 2.0))
             canvas.paste(shadowed_img, (paste_x, paste_y), shadowed_img)
@@ -414,12 +568,8 @@ def compose_deliverable_canvas(
             # Coaster title directly above coaster
             lbl_font = get_coaster_title_font(label, max_w=pitch * 0.88, default_size=default_label_size)
             lbl_bbox = draw.textbbox((0, 0), label, font=lbl_font)
-            lbl_w = lbl_bbox[2] - lbl_bbox[0]
-            lbl_h = lbl_bbox[3] - lbl_bbox[1]
             
-            # Centered horizontally over the coaster
             lbl_x = int(round(coaster_cx - (lbl_bbox[2] + lbl_bbox[0]) / 2.0))
-            # Exactly pad_above pixels above coaster top edge
             lbl_y = int(round(coaster_top_y - pad_above - lbl_bbox[3]))
             
             draw.text((lbl_x, lbl_y), label, font=lbl_font, fill=(30, 41, 59, 255))
@@ -432,24 +582,25 @@ def compose_deliverable_canvas(
 # =====================================================================
 
 def make_c15_a15_figure():
-    print("Building 'C15/A15' deliverable figure (6 coasters, center-to-center = 1.25x D)...")
+    print("Building 'C15/A15' deliverable figure (D=482px, 10% side margins, pitch=1.2xD)...")
     items = [
-        # Row 1: C15
+        # Row 1: C15 offsets 0.0, L/16 (3.125), L/8 (6.25)
         ("C15_v1", render_polygon_to_image(get_c15_polygon(0.0), 750)),
-        ("C15_v2", render_polygon_to_image(get_c15_polygon(0.0625), 750)),
-        ("C15_v3", render_polygon_to_image(get_c15_polygon(0.125), 750)),
-        # Row 2: A15
+        ("C15_v2", render_polygon_to_image(get_c15_polygon(3.125), 750)),
+        ("C15_v3", render_polygon_to_image(get_c15_polygon(6.25), 750)),
+        # Row 2: A15 offsets 0.0, L/8 (3.125), L/4 (6.25)
         ("A15_v1", render_polygon_to_image(get_a15_polygon(0.0), 750)),
-        ("A15_v2", render_polygon_to_image(get_a15_polygon(0.125), 750)),
-        ("A15_v3", render_polygon_to_image(get_a15_polygon(0.25), 750)),
+        ("A15_v2", render_polygon_to_image(get_a15_polygon(3.125), 750)),
+        ("A15_v3", render_polygon_to_image(get_a15_polygon(6.25), 750)),
     ]
+    # D = 482 px gives exactly 10% side margins (span = 2 * 1.2 * 482 + 482 = 1638.8 px = 80% of 2048)
     canvas = compose_deliverable_canvas(
         title_text="C15/A15",
         items=items,
         layout_rows=[3, 3],
-        coaster_size_px=540,
-        default_label_size=58,
-        pad_above=14,
+        coaster_size_px=482,
+        default_label_size=44,
+        pad_above=12,
     )
     out_path = OUTPUT_DIR / "c15_a15_previews.png"
     canvas.save(out_path, quality=95)
@@ -457,7 +608,7 @@ def make_c15_a15_figure():
 
 
 def make_voroni_figure():
-    print("Building 'Voroni' deliverable figure (6 coasters, center-to-center = 1.25x D)...")
+    print("Building 'Voroni' deliverable figure (D=482px, 10% side margins, pitch=1.2xD)...")
     items = [
         # Row 1: Dense (small_v1, small_v2, small_v3)
         ("small_v1", render_polygon_to_image(get_voronoi_polygon(100, 42), 750)),
@@ -472,40 +623,39 @@ def make_voroni_figure():
         title_text="Voroni",
         items=items,
         layout_rows=[3, 3],
-        coaster_size_px=540,
-        default_label_size=58,
-        pad_above=14,
+        coaster_size_px=482,
+        default_label_size=44,
+        pad_above=12,
     )
     out_path = OUTPUT_DIR / "voroni_previews.png"
     canvas.save(out_path, quality=95)
-    # Also save as voronoi_previews.png for compatibility
     canvas.save(OUTPUT_DIR / "voronoi_previews.png", quality=95)
     print(f"  Saved: {out_path}")
 
 
 def make_explicit_figure():
-    print("Building 'Explicit' deliverable figure (9 coasters, 3x3 grid, center-to-center = 1.25x D)...")
+    print("Building 'Explicit' deliverable figure (9 coasters, 3x3 grid, D=390px, pitch=1.2xD)...")
     items = [
         # Row 1: Triangle Top 3
-        ("Tri_Tetrahedral", render_polygon_to_image(get_tri_polygon("Tetrahedral"), 600)),
-        ("Tri_Icosahedral", render_polygon_to_image(get_tri_polygon("Icosahedral"), 600)),
-        ("Tri_Kelvin", render_polygon_to_image(get_tri_polygon("Kelvin"), 600)),
+        ("Tri_Tetrahedral", render_polygon_to_image(get_tri_polygon("Tetrahedral"), 650)),
+        ("Tri_Icosahedral", render_polygon_to_image(get_tri_polygon("Icosahedral"), 650)),
+        ("Tri_Kelvin", render_polygon_to_image(get_tri_polygon("Kelvin"), 650)),
         # Row 2: Triangle Remaining 2 + Square 1
-        ("Tri_Tesseract", render_polygon_to_image(get_tri_polygon("Tesseract"), 600)),
-        ("Tri_Rhombic", render_polygon_to_image(get_tri_polygon("Rhombic"), 600)),
-        ("Sq_Grid", render_polygon_to_image(get_sq_polygon("Grid"), 600)),
+        ("Tri_Tesseract", render_polygon_to_image(get_tri_polygon("Tesseract"), 650)),
+        ("Tri_Rhombic", render_polygon_to_image(get_tri_polygon("Rhombic"), 650)),
+        ("Sq_Grid", render_polygon_to_image(get_sq_polygon("Grid"), 650)),
         # Row 3: Square Remaining 3
-        ("Sq_Icosahedral", render_polygon_to_image(get_sq_polygon("Icosahedral"), 600)),
-        ("Sq_Kelvin", render_polygon_to_image(get_sq_polygon("Kelvin"), 600)),
-        ("Sq_Tesseract", render_polygon_to_image(get_sq_polygon("Tesseract"), 600)),
+        ("Sq_Icosahedral", render_polygon_to_image(get_sq_polygon("Icosahedral"), 650)),
+        ("Sq_Kelvin", render_polygon_to_image(get_sq_polygon("Kelvin"), 650)),
+        ("Sq_Tesseract", render_polygon_to_image(get_sq_polygon("Tesseract"), 650)),
     ]
     canvas = compose_deliverable_canvas(
         title_text="Explicit",
         items=items,
         layout_rows=[3, 3, 3],
-        coaster_size_px=360,
-        default_label_size=46,
-        pad_above=12,
+        coaster_size_px=390,
+        default_label_size=34,
+        pad_above=10,
     )
     out_path = OUTPUT_DIR / "explicit_previews.png"
     canvas.save(out_path, quality=95)
@@ -513,7 +663,7 @@ def make_explicit_figure():
 
 
 def make_tpms_figure():
-    print("Building 'TPMS' deliverable figure (8 coasters, 3 rows, center-to-center = 1.25x D)...")
+    print("Building 'TPMS' deliverable figure (8 coasters, 3 rows, D=360px, pitch=1.2xD)...")
     items = [
         # Row 1: Z = 0
         ("Gyroid (Z=0)", get_tpms_image("Gyroid", 0.0, 360)),
@@ -532,8 +682,8 @@ def make_tpms_figure():
         items=items,
         layout_rows=[3, 2, 3],
         coaster_size_px=360,
-        default_label_size=46,
-        pad_above=12,
+        default_label_size=34,
+        pad_above=10,
     )
     out_path = OUTPUT_DIR / "tpms_previews.png"
     canvas.save(out_path, quality=95)
@@ -558,7 +708,7 @@ def clean_obsolete_figures():
 
 
 def main():
-    print("Generating all 4 combined deliverable figures...")
+    print("Generating all 4 combined deliverable figures with exact cross sections and 1.2x pitch...")
     make_c15_a15_figure()
     make_voroni_figure()
     make_explicit_figure()
