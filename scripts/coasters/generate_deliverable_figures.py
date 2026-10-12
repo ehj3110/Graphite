@@ -484,7 +484,7 @@ def render_polygon_to_image(poly, render_dim=750, color_hex="#141416"):
     return img
 
 
-def render_polygon_outline_to_image(poly, render_dim=482, color_hex="#1e3a8a", linewidth=1.2):
+def render_polygon_outline_to_image(poly, render_dim=482, color_hex="#1e3a8a", linewidth=1.8):
     """Render polygon with hollow interior and crisp #1e3a8a outlines matching original style."""
     fig, ax = plt.subplots(figsize=(4, 4), dpi=render_dim / 4.0)
     fig.patch.set_facecolor("none")
@@ -633,9 +633,9 @@ def save_all_variants(
     canvas_blue.save(out_blue, quality=95)
     print(f"  Saved (Blue):    {out_blue}")
 
-    # 3. Blue Outline variant (#1e3a8a, original outline style)
+    # 3. Blue Outline variant (#1e3a8a, original outline style with slightly thicker lines)
     outline_items = [
-        (label, render_polygon_outline_to_image(poly, coaster_size_px, "#1e3a8a", linewidth=1.2))
+        (label, render_polygon_outline_to_image(poly, coaster_size_px, "#1e3a8a", linewidth=1.8))
         for label, poly in poly_items
     ]
     canvas_outline = compose_deliverable_canvas(
