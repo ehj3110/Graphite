@@ -442,11 +442,21 @@ def get_tpms_image(lattice_type, z_mm, target_size_px=360):
     return Image.fromarray(img_data, mode="RGBA").resize((target_size_px, target_size_px), Image.Resampling.LANCZOS)
 
 
+def recolor_coaster_rgba(img, rgb=(30, 58, 138)):
+    """Return a copy of an RGBA coaster image with solid RGB channels set to `rgb` (e.g. #1e3a8a)."""
+    arr = np.array(img, dtype=np.uint8)
+    mask = arr[:, :, 3] > 0
+    arr[mask, 0] = rgb[0]
+    arr[mask, 1] = rgb[1]
+    arr[mask, 2] = rgb[2]
+    return Image.fromarray(arr, mode="RGBA")
+
+
 # =====================================================================
 # 2. Rendering & Drop Shadow
 # =====================================================================
 
-def render_polygon_to_image(poly, render_dim=750):
+def render_polygon_to_image(poly, render_dim=750, color_hex="#141416"):
     fig, ax = plt.subplots(figsize=(6, 6), dpi=render_dim / 6.0)
     fig.patch.set_facecolor("none")
     ax.set_facecolor("none")
@@ -455,7 +465,7 @@ def render_polygon_to_image(poly, render_dim=750):
     ax.set_xlim(-50.5, 50.5)
     ax.set_ylim(-50.5, 50.5)
     
-    spl.plot_polygon(poly, ax=ax, add_points=False, color="#141416", alpha=1.0)
+    spl.plot_polygon(poly, ax=ax, add_points=False, color=color_hex, alpha=1.0)
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
     fig.canvas.draw()
@@ -578,11 +588,49 @@ def compose_deliverable_canvas(
 
 
 # =====================================================================
-# 4. Deliverable Figure Builders
+# 4. Deliverable Figure Builders (Black #141416 & Blue #1e3a8a)
 # =====================================================================
 
+def save_black_and_blue_variants(
+    title_text,
+    black_items,
+    layout_rows,
+    coaster_size_px,
+    default_label_size,
+    pad_above,
+    stem_name,
+):
+    """Save both the black (#141416) and blue (#1e3a8a) deliverable figures."""
+    # 1. Black variant
+    canvas_black = compose_deliverable_canvas(
+        title_text=title_text,
+        items=black_items,
+        layout_rows=layout_rows,
+        coaster_size_px=coaster_size_px,
+        default_label_size=default_label_size,
+        pad_above=pad_above,
+    )
+    out_black = OUTPUT_DIR / f"{stem_name}.png"
+    canvas_black.save(out_black, quality=95)
+    print(f"  Saved (Black): {out_black}")
+
+    # 2. Blue variant (#1e3a8a -> RGB(30, 58, 138))
+    blue_items = [(label, recolor_coaster_rgba(img, (30, 58, 138))) for label, img in black_items]
+    canvas_blue = compose_deliverable_canvas(
+        title_text=title_text,
+        items=blue_items,
+        layout_rows=layout_rows,
+        coaster_size_px=coaster_size_px,
+        default_label_size=default_label_size,
+        pad_above=pad_above,
+    )
+    out_blue = OUTPUT_DIR / f"{stem_name}_blue.png"
+    canvas_blue.save(out_blue, quality=95)
+    print(f"  Saved (Blue):  {out_blue}")
+
+
 def make_c15_a15_figure():
-    print("Building 'C15/A15' deliverable figure (D=482px, 10% side margins, pitch=1.2xD)...")
+    print("Building 'C15/A15' deliverable figures (D=482px, 10% side margins, pitch=1.2xD)...")
     items = [
         # Row 1: C15 offsets 0.0, L/16 (3.125), L/8 (6.25)
         ("C15_v1", render_polygon_to_image(get_c15_polygon(0.0), 750)),
@@ -593,22 +641,19 @@ def make_c15_a15_figure():
         ("A15_v2", render_polygon_to_image(get_a15_polygon(3.125), 750)),
         ("A15_v3", render_polygon_to_image(get_a15_polygon(6.25), 750)),
     ]
-    # D = 482 px gives exactly 10% side margins (span = 2 * 1.2 * 482 + 482 = 1638.8 px = 80% of 2048)
-    canvas = compose_deliverable_canvas(
+    save_black_and_blue_variants(
         title_text="C15/A15",
-        items=items,
+        black_items=items,
         layout_rows=[3, 3],
         coaster_size_px=482,
         default_label_size=44,
         pad_above=12,
+        stem_name="c15_a15_previews",
     )
-    out_path = OUTPUT_DIR / "c15_a15_previews.png"
-    canvas.save(out_path, quality=95)
-    print(f"  Saved: {out_path}")
 
 
 def make_voroni_figure():
-    print("Building 'Voroni' deliverable figure (D=482px, 10% side margins, pitch=1.2xD)...")
+    print("Building 'Voroni' deliverable figures (D=482px, 10% side margins, pitch=1.2xD)...")
     items = [
         # Row 1: Dense (small_v1, small_v2, small_v3)
         ("small_v1", render_polygon_to_image(get_voronoi_polygon(100, 42), 750)),
@@ -619,22 +664,19 @@ def make_voroni_figure():
         ("large_v2", render_polygon_to_image(get_voronoi_polygon(50, 43), 750)),
         ("large_v3", render_polygon_to_image(get_voronoi_polygon(50, 44), 750)),
     ]
-    canvas = compose_deliverable_canvas(
+    save_black_and_blue_variants(
         title_text="Voroni",
-        items=items,
+        black_items=items,
         layout_rows=[3, 3],
         coaster_size_px=482,
         default_label_size=44,
         pad_above=12,
+        stem_name="voroni_previews",
     )
-    out_path = OUTPUT_DIR / "voroni_previews.png"
-    canvas.save(out_path, quality=95)
-    canvas.save(OUTPUT_DIR / "voronoi_previews.png", quality=95)
-    print(f"  Saved: {out_path}")
 
 
 def make_explicit_figure():
-    print("Building 'Explicit' deliverable figure (9 coasters, 3x3 grid, D=390px, pitch=1.2xD)...")
+    print("Building 'Explicit' deliverable figures (9 coasters, 3x3 grid, D=390px, pitch=1.2xD)...")
     items = [
         # Row 1: Triangle Top 3
         ("Tri_Tetrahedral", render_polygon_to_image(get_tri_polygon("Tetrahedral"), 650)),
@@ -649,21 +691,19 @@ def make_explicit_figure():
         ("Sq_Kelvin", render_polygon_to_image(get_sq_polygon("Kelvin"), 650)),
         ("Sq_Tesseract", render_polygon_to_image(get_sq_polygon("Tesseract"), 650)),
     ]
-    canvas = compose_deliverable_canvas(
+    save_black_and_blue_variants(
         title_text="Explicit",
-        items=items,
+        black_items=items,
         layout_rows=[3, 3, 3],
         coaster_size_px=390,
         default_label_size=34,
         pad_above=10,
+        stem_name="explicit_previews",
     )
-    out_path = OUTPUT_DIR / "explicit_previews.png"
-    canvas.save(out_path, quality=95)
-    print(f"  Saved: {out_path}")
 
 
 def make_tpms_figure():
-    print("Building 'TPMS' deliverable figure (8 coasters, 3 rows, D=360px, pitch=1.2xD)...")
+    print("Building 'TPMS' deliverable figures (8 coasters, 3 rows, D=360px, pitch=1.2xD)...")
     items = [
         # Row 1: Z = 0
         ("Gyroid (Z=0)", get_tpms_image("Gyroid", 0.0, 360)),
@@ -677,17 +717,15 @@ def make_tpms_figure():
         ("Diamond (Z=2.4)", get_tpms_image("Diamond", 2.4, 360)),
         ("Lidinoid (Z=2.4)", get_tpms_image("Lidinoid", 2.4, 360)),
     ]
-    canvas = compose_deliverable_canvas(
+    save_black_and_blue_variants(
         title_text="TPMS",
-        items=items,
+        black_items=items,
         layout_rows=[3, 2, 3],
         coaster_size_px=360,
         default_label_size=34,
         pad_above=10,
+        stem_name="tpms_previews",
     )
-    out_path = OUTPUT_DIR / "tpms_previews.png"
-    canvas.save(out_path, quality=95)
-    print(f"  Saved: {out_path}")
 
 
 def clean_obsolete_figures():
@@ -708,14 +746,15 @@ def clean_obsolete_figures():
 
 
 def main():
-    print("Generating all 4 combined deliverable figures with exact cross sections and 1.2x pitch...")
+    print("Generating all 4 combined deliverable figures (Black & Blue #1e3a8a versions)...")
     make_c15_a15_figure()
     make_voroni_figure()
     make_explicit_figure()
     make_tpms_figure()
     clean_obsolete_figures()
-    print("All 4 combined figures generated successfully!")
+    print("All combined figures (Black and Blue) generated successfully!")
 
 
 if __name__ == "__main__":
     main()
+
