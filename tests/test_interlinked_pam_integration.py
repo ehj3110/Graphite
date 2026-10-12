@@ -77,16 +77,30 @@ class TestInterlinkedPAMIntegration:
         assert res.mesh.is_watertight
 
     def test_dfam_preflight_guardrail_rejection(self):
-        """Verify that physical collision configurations are rejected before geometry allocation."""
-        cfg = InterlinkedConfig(
+        """Verify that physical collision configurations are rejected when strict=True and reported when strict=False."""
+        cfg_strict = InterlinkedConfig(
             cell="c6tt",
             grid_size=(2, 2, 1),
             pitch=5.0,
             wire_radius=1.0,
             seeding_type="cartesian",
+            strict=True,
         )
         with pytest.raises(ValueError, match="DfAM Pre-Flight Rejection"):
-            generate_interlinked_lattice(cfg)
+            generate_interlinked_lattice(cfg_strict)
+
+        # Permissive default: strict=False generates geometry and records report warning
+        cfg_permissive = InterlinkedConfig(
+            cell="c6tt",
+            grid_size=(2, 2, 1),
+            pitch=5.0,
+            wire_radius=1.0,
+            seeding_type="cartesian",
+            strict=False,
+        )
+        res = generate_interlinked_lattice(cfg_permissive)
+        assert res.metadata.get("preflight_warning") is not None
+        assert not res.clearance_valid
 
     def test_clean_miter_joints_default_watertight(self):
         """Verify clean miter truss joints are the universal default and yield watertight solids."""

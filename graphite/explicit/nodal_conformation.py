@@ -662,16 +662,22 @@ def generate_sc_conformal_lattice(
     if surface_dual_mode == "planar_sweep":
         from graphite.explicit.planar_surface_sweep import PlanarSweepConfig
 
-        cfg = PlanarSweepConfig(
-            dual_width=dw,
-            dual_thickness=dt,
-            inward_depth_factor=1.5,
-            outer_margin=0.4,
-            n_sweep_pts=8,
-            extend_factor=0.4,
-            valley_prune_sdf=0.5,
-            boundary_promote_eps=0.1,
-        )
+        sweep_cfg = kwargs.get("sweep_config")
+        if isinstance(sweep_cfg, PlanarSweepConfig):
+            cfg = sweep_cfg
+        else:
+            cfg = PlanarSweepConfig(
+                dual_width=dw,
+                dual_thickness=dt,
+                inward_depth_factor=1.5,
+                outer_margin=0.4,
+                n_sweep_pts=8,
+                extend_factor=0.4,
+                valley_prune_sdf=kwargs.get("valley_prune_sdf", None),
+                boundary_promote_eps=float(kwargs.get("boundary_promote_eps", 1.0)),
+                enable_junction_caps=bool(kwargs.get("enable_junction_caps", True)),
+                junction_cap_factor=float(kwargs.get("junction_cap_factor", 0.6)),
+            )
 
     nc = generate_nodal_conformation(
         cad,
@@ -793,3 +799,456 @@ def generate_sc_conformal_lattice(
         "rule_name": rule_name,
         "report": nc.report,
     }
+
+
+# ---------------------------------------------------------------------------
+# Conformation Diagnostic Stages Helper (Troubleshooting & Visualization)
+# ---------------------------------------------------------------------------
+
+
+def calculate_sc_strut_radius_for_solid_fraction(
+    nodes: np.ndarray,
+    struts: np.ndarray,
+    n_cells: int,
+    cell_size: float | tuple[float, float, float] | np.ndarray,
+    target_solid_fraction: float = 0.02,
+) -> tuple[float, float]:
+    """Calculate the strut radius and diameter to achieve a target solid fraction across a lattice.
+
+    Computes:
+        V_domain = n_cells * (cell_size_x * cell_size_y * cell_size_z)
+        L_total = sum(strut_lengths)
+        strut_radius = sqrt((target_solid_fraction * V_domain) / (pi * L_total))
+        strut_diameter = 2 * strut_radius
+
+    Returns:
+        (strut_radius, strut_diameter) in mm.
+    """
+    pts = np.asarray(nodes, dtype=np.float64)
+    edges = np.asarray(struts, dtype=np.int64).reshape(-1, 2)
+    cell_dims = _as_cell_dims(cell_size)
+    v_cell = float(np.prod(cell_dims))
+    v_domain = float(n_cells) * v_cell
+
+    if len(edges) == 0 or v_domain <= 0:
+        return 0.5, 1.0
+
+    lengths = np.linalg.norm(pts[edges[:, 1]] - pts[edges[:, 0]], axis=1)
+    l_total = float(np.sum(lengths))
+    if l_total <= 0:
+        return 0.5, 1.0
+
+    phi = float(target_solid_fraction)
+    r = float(np.sqrt((phi * v_domain) / (np.pi * l_total)))
+    return r, 2.0 * r
+
+
+@dataclass
+class SCConformationStagesResult:
+    """Diagnostic data and meshes for the 3 conformal lattice preparation stages."""
+
+    rule_name: str
+    cell_size: np.ndarray
+    target_solid_fraction: float
+    calculated_strut_diameter: float
+    calculated_strut_radius: float
+
+    # Node and strut arrays (non-default)
+    untrimmed_nodes: np.ndarray
+    untrimmed_struts: np.ndarray
+    trimmed_nodes: np.ndarray
+    trimmed_struts: np.ndarray
+    conformed_nodes: np.ndarray
+    conformed_struts: np.ndarray
+
+    # Meshes and paths (optional/default None)
+    untrimmed_mesh: trimesh.Trimesh | None = None
+    untrimmed_stl_path: Path | None = None
+    trimmed_mesh: trimesh.Trimesh | None = None
+    trimmed_stl_path: Path | None = None
+    conformed_mesh: trimesh.Trimesh | None = None
+    conformed_stl_path: Path | None = None
+
+    # SC Grid Cage (bounding box wireframe of kept cells)
+    grid_cage_nodes: np.ndarray | None = None
+    grid_cage_struts: np.ndarray | None = None
+    grid_cage_mesh: trimesh.Trimesh | None = None
+    grid_cage_stl_path: Path | None = None
+    grid_cage_diameter: float = 0.0
+    grid_cage_radius: float = 0.0
+
+    # Stage 4: Full Conformal Lattice (with Universal Surface Dual)
+    full_conformal_mesh: trimesh.Trimesh | None = None
+    full_conformal_stl_path: Path | None = None
+
+    report: dict = field(default_factory=dict)
+
+
+
+def generate_sc_conformation_stages(
+    cad_filepath: str | Path | trimesh.Trimesh,
+    cell_size: float | tuple[float, float, float] | np.ndarray = 15.0,
+    *,
+    rule_name: str = "star",
+    target_solid_fraction: float = 0.02,
+    strut_diameter: float | None = None,
+    empty_vf_max: float = 0.01,
+    box_vf_min: float = 0.0,
+    samples_per_axis: int = 8,
+    extent_samples_per_axis: int = 10,
+    origin_offset: np.ndarray | tuple[float, float, float] | None = None,
+    export_dir: str | Path | None = None,
+    part_name: str = "sc_stages",
+    build_meshes: bool = True,
+    include_grid_cage: bool = True,
+    include_full_conformal: bool = True,
+    circular_segments: int = 16,
+) -> SCConformationStagesResult:
+    """Generate the 3 progressive stages of SC lattice preparation for visual troubleshooting:
+
+    1. Culled, Untrimmed Array: Full unit cells stamped into all kept Cartesian hexes (no sub-cell trimming).
+       Allows inspecting raw unit-cell placement and cell culling relative to CAD.
+    2. Culled & Trimmed Array: Cartesian array trimmed against CAD by sub-cell node planes (25%/75%).
+       Allows inspecting internal crystal symmetry and boundary sub-cell element dropping.
+    3. Trimmed & Conformed Array: The trimmed array with outside nodes snapped/deformed to the CAD boundary.
+       Allows inspecting boundary node projection and lattice conformance before surface dual addition.
+
+    Also generates an optional SC Grid Cage (wireframe box edges of all kept hexes at target solid fraction)
+    to visually map out the underlying simple cubic grid.
+    """
+    from scipy.spatial import cKDTree
+    from graphite.explicit.hex_topology_module import get_hex_topology_rule
+    from graphite.explicit.geometry_module import build_clean_miter_truss
+
+    # 1. Load CAD
+    if isinstance(cad_filepath, (str, Path)):
+        cad_path = Path(cad_filepath)
+        cad = trimesh.load(str(cad_path), force="mesh")
+        if isinstance(cad, trimesh.Scene):
+            cad = cad.dump(concatenate=True)
+        default_pname = cad_path.stem
+    else:
+        cad = cad_filepath
+        if isinstance(cad, trimesh.Scene):
+            cad = cad.dump(concatenate=True)
+        default_pname = "conformal_stages"
+
+    pname = part_name if part_name != "sc_stages" else default_pname
+    cell_dims = _as_cell_dims(cell_size)
+    rule = str(rule_name).strip().lower()
+
+    if origin_offset is None:
+        offset = np.zeros(3, dtype=np.float64)
+    else:
+        offset = np.asarray(origin_offset, dtype=np.float64).reshape(3)
+
+    # 2. Background Grid & Volume Fraction Culling
+    bounds = np.asarray(cad.bounds, dtype=np.float64)
+    gn, cells = generate_background_grid("SC", bounds, cell_dims, origin_offset=offset)
+    hex_all = np.asarray(gn[np.asarray(cells, dtype=np.int64)], dtype=np.float64)
+
+    vf = estimate_hex_volume_fractions(cad, hex_all, samples_per_axis=int(samples_per_axis))
+    fracs = np.asarray(vf.volume_fractions, dtype=np.float64)
+    kept_mask = fracs >= float(empty_vf_max)
+    kept_hexes = hex_all[kept_mask]
+
+    if len(kept_hexes) == 0:
+        raise RuntimeError(f"No hexes kept for {rule} with empty_vf_max={empty_vf_max}")
+
+    # 3. Stage 1: Culled, Untrimmed SC Array
+    rule_obj = get_hex_topology_rule(rule)
+    all_pts = []
+    all_struts = []
+    for h in kept_hexes:
+        pts_h, struts_h = rule_obj.builder(h)
+        base_idx = len(all_pts)
+        all_pts.extend(pts_h)
+        all_struts.extend(struts_h + base_idx)
+
+    all_pts_arr = np.asarray(all_pts, dtype=np.float64)
+    all_struts_arr = np.asarray(all_struts, dtype=np.int64)
+
+    tree1 = cKDTree(all_pts_arr)
+    groups1 = tree1.query_ball_tree(tree1, r=1e-4)
+    remap1 = np.zeros(len(all_pts_arr), dtype=np.int64)
+    visited1 = set()
+    u_pts1_list = []
+    for i, g in enumerate(groups1):
+        if i not in visited1:
+            rep = len(u_pts1_list)
+            u_pts1_list.append(all_pts_arr[i])
+            for idx in g:
+                remap1[idx] = rep
+                visited1.add(idx)
+
+    stage1_nodes = np.asarray(u_pts1_list, dtype=np.float64)
+    stage1_struts = _unique_edges(remap1[all_struts_arr])
+
+    # 4. Determine Strut Radius & Diameter
+    if strut_diameter is not None and float(strut_diameter) > 0:
+        r_strut = float(strut_diameter) / 2.0
+        d_strut = float(strut_diameter)
+    else:
+        r_strut, d_strut = calculate_sc_strut_radius_for_solid_fraction(
+            stage1_nodes,
+            stage1_struts,
+            len(kept_hexes),
+            cell_dims,
+            target_solid_fraction=target_solid_fraction,
+        )
+
+    # 5. Stage 2: Culled and Node-Plane Trimmed Array (Cartesian)
+    stage2_nodes, stage2_struts, trim_rep = generate_node_plane_trimmed_lattice(
+        cad,
+        kept_hexes,
+        rule_name=rule,
+        empty_vf_max=float(empty_vf_max),
+        samples_per_axis=int(samples_per_axis),
+        extent_samples_per_axis=int(extent_samples_per_axis),
+        grid_cull_vf_min=GRID_CULL_VF_MIN,
+        box_vf_min=float(box_vf_min),
+    )
+    stage2_struts = _unique_edges(stage2_struts)
+
+    # 6. Stage 3: Trimmed & Conformed Array (Boundary Snapped)
+    stage3_nodes, n_deformed = deform_outside_nodes(stage2_nodes, cad)
+    stage3_struts = stage2_struts.copy()
+
+    # 7. Optional SC Grid Cage (12 Edges per Kept Hex Box)
+    cage_nodes = None
+    cage_struts = None
+    r_cage = 0.0
+    d_cage = 0.0
+    if include_grid_cage:
+        _HEX_EDGES = (
+            (0, 1), (1, 2), (2, 3), (3, 0),
+            (4, 5), (5, 6), (6, 7), (7, 4),
+            (0, 4), (1, 5), (2, 6), (3, 7),
+        )
+        all_corners = kept_hexes.reshape(-1, 3)
+        tree_c = cKDTree(all_corners)
+        groups_c = tree_c.query_ball_tree(tree_c, r=1e-4)
+        remap_c = np.zeros(len(all_corners), dtype=np.int64)
+        visited_c = set()
+        u_corners_list = []
+        for i, g in enumerate(groups_c):
+            if i not in visited_c:
+                rep = len(u_corners_list)
+                u_corners_list.append(all_corners[i])
+                for idx in g:
+                    remap_c[idx] = rep
+                    visited_c.add(idx)
+        cage_nodes = np.asarray(u_corners_list, dtype=np.float64)
+        edge_list = []
+        for h_idx in range(len(kept_hexes)):
+            base = h_idx * 8
+            for e0, e1 in _HEX_EDGES:
+                edge_list.append([remap_c[base + e0], remap_c[base + e1]])
+        cage_struts = _unique_edges(np.asarray(edge_list, dtype=np.int64))
+        r_cage, d_cage = calculate_sc_strut_radius_for_solid_fraction(
+            cage_nodes,
+            cage_struts,
+            len(kept_hexes),
+            cell_dims,
+            target_solid_fraction=target_solid_fraction,
+        )
+
+    # 8. Build Watertight Clean Miter Meshes
+    mesh1 = None
+    mesh2 = None
+    mesh3 = None
+    mesh_cage = None
+
+    if build_meshes:
+        if len(stage1_struts) > 0:
+            mesh1 = build_clean_miter_truss(
+                stage1_nodes, stage1_struts, r_strut, circular_segments=circular_segments
+            )
+        if len(stage2_struts) > 0:
+            mesh2 = build_clean_miter_truss(
+                stage2_nodes, stage2_struts, r_strut, circular_segments=circular_segments
+            )
+        if len(stage3_struts) > 0:
+            mesh3 = build_clean_miter_truss(
+                stage3_nodes, stage3_struts, r_strut, circular_segments=circular_segments
+            )
+        if include_grid_cage and cage_nodes is not None and cage_struts is not None and len(cage_struts) > 0:
+            mesh_cage = build_clean_miter_truss(
+                cage_nodes, cage_struts, r_cage, circular_segments=circular_segments
+            )
+        mesh4 = None
+        if include_full_conformal:
+            try:
+                full_res = generate_sc_conformal_lattice(
+                    cad,
+                    cell_size=cell_dims,
+                    strut_radius=r_strut,
+                    rule_name=rule,
+                    origin_offset=offset,
+                    box_vf_min=box_vf_min,
+                )
+                mesh4 = full_res.get("mesh")
+            except Exception:
+                mesh4 = None
+    else:
+        mesh4 = None
+
+    # 9. Export STLs if Requested
+    p1 = None
+    p2 = None
+    p3 = None
+    p_cage = None
+    p4 = None
+
+    if export_dir is not None:
+        out_dir = Path(export_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if mesh1 is not None:
+            p1 = out_dir / f"{pname}_{rule}_stage1_untrimmed.stl"
+            mesh1.export(str(p1))
+        if mesh2 is not None:
+            p2 = out_dir / f"{pname}_{rule}_stage2_trimmed.stl"
+            mesh2.export(str(p2))
+        if mesh3 is not None:
+            p3 = out_dir / f"{pname}_{rule}_stage3_conformed.stl"
+            mesh3.export(str(p3))
+        if mesh_cage is not None:
+            p_cage = out_dir / f"{pname}_grid_cage_2pct.stl"
+            mesh_cage.export(str(p_cage))
+        if mesh4 is not None:
+            p4 = out_dir / f"{pname}_{rule}_stage4_conformal_full.stl"
+            mesh4.export(str(p4))
+
+    report = {
+        "rule_name": rule,
+        "n_hex_total": len(hex_all),
+        "n_hex_kept": len(kept_hexes),
+        "target_solid_fraction": float(target_solid_fraction),
+        "strut_diameter_mm": float(d_strut),
+        "strut_radius_mm": float(r_strut),
+        "stage1_untrimmed": {
+            "n_nodes": int(len(stage1_nodes)),
+            "n_struts": int(len(stage1_struts)),
+            "n_faces": int(len(mesh1.faces)) if mesh1 is not None else 0,
+            "is_watertight": bool(mesh1.is_watertight) if mesh1 is not None else False,
+        },
+        "stage2_trimmed": {
+            "n_nodes": int(len(stage2_nodes)),
+            "n_struts": int(len(stage2_struts)),
+            "n_faces": int(len(mesh2.faces)) if mesh2 is not None else 0,
+            "is_watertight": bool(mesh2.is_watertight) if mesh2 is not None else False,
+        },
+        "stage3_conformed": {
+            "n_nodes": int(len(stage3_nodes)),
+            "n_nodes_deformed": int(n_deformed),
+            "n_struts": int(len(stage3_struts)),
+            "n_faces": int(len(mesh3.faces)) if mesh3 is not None else 0,
+            "is_watertight": bool(mesh3.is_watertight) if mesh3 is not None else False,
+        },
+    }
+    if include_grid_cage and cage_nodes is not None and cage_struts is not None:
+        report["grid_cage"] = {
+            "cage_diameter_mm": float(d_cage),
+            "cage_radius_mm": float(r_cage),
+            "n_nodes": int(len(cage_nodes)),
+            "n_struts": int(len(cage_struts)),
+            "n_faces": int(len(mesh_cage.faces)) if mesh_cage is not None else 0,
+            "is_watertight": bool(mesh_cage.is_watertight) if mesh_cage is not None else False,
+        }
+
+    return SCConformationStagesResult(
+        rule_name=rule,
+        cell_size=cell_dims,
+        target_solid_fraction=float(target_solid_fraction),
+        calculated_strut_diameter=float(d_strut),
+        calculated_strut_radius=float(r_strut),
+        untrimmed_nodes=stage1_nodes,
+        untrimmed_struts=stage1_struts,
+        untrimmed_mesh=mesh1,
+        untrimmed_stl_path=p1,
+        trimmed_nodes=stage2_nodes,
+        trimmed_struts=stage2_struts,
+        trimmed_mesh=mesh2,
+        trimmed_stl_path=p2,
+        conformed_nodes=stage3_nodes,
+        conformed_struts=stage3_struts,
+        conformed_mesh=mesh3,
+        conformed_stl_path=p3,
+        grid_cage_nodes=cage_nodes,
+        grid_cage_struts=cage_struts,
+        grid_cage_mesh=mesh_cage,
+        grid_cage_stl_path=p_cage,
+        grid_cage_diameter=float(d_cage),
+        grid_cage_radius=float(r_cage),
+        full_conformal_mesh=mesh4,
+        full_conformal_stl_path=p4,
+        report=report,
+    )
+
+
+def render_sc_conformation_stages_figure(
+    stages: SCConformationStagesResult,
+    cad_mesh: trimesh.Trimesh,
+    output_png_path: str | Path,
+) -> Path:
+    """Render a 4-panel visual comparison of the SC conformation stages with PyVista and Matplotlib:
+    1. Stage 1: Culled Untrimmed Array
+    2. Stage 2: Culled and Trimmed Array (Cartesian)
+    3. Stage 3: Trimmed and Conformed Array (Boundary Snapped)
+    4. Stage 4: Full Conformal Lattice with Universal Surface Dual (or SC Grid Cage)
+    """
+    import matplotlib.pyplot as plt
+    import pyvista as pv
+
+    pv.set_plot_theme("document")
+    pv_cad = pv.wrap(cad_mesh)
+
+    if stages.full_conformal_mesh is not None and len(stages.full_conformal_mesh.faces) > 0:
+        panels = [
+            (f"Stage 1: Culled Untrimmed ({stages.rule_name.capitalize()})\nWhole Cells (No Sub-Cell Trimming)", stages.untrimmed_mesh, "#a855f7"),
+            (f"Stage 2: Culled & Trimmed ({stages.rule_name.capitalize()})\nCartesian 25%/75% Node-Plane Trim", stages.trimmed_mesh, "#f59e0b"),
+            (f"Stage 3: Trimmed & Conformed ({stages.rule_name.capitalize()})\nOutside Nodes Snapped to Boundary", stages.conformed_mesh, "#10b981"),
+            (f"Stage 4: Full Conformal + Dual ({stages.rule_name.capitalize()})\nWatertight Universal Surface Dual", stages.full_conformal_mesh, "#06b6d4"),
+        ]
+    else:
+        panels = [
+            ("SC Grid Cage (2% Solid Fraction)\nBackground Hex Bounding Boxes", stages.grid_cage_mesh, "#38bdf8"),
+            (f"Stage 1: Culled Untrimmed ({stages.rule_name.capitalize()})\nWhole Cells (No Sub-Cell Trimming)", stages.untrimmed_mesh, "#a855f7"),
+            (f"Stage 2: Culled & Trimmed ({stages.rule_name.capitalize()})\nCartesian 25%/75% Node-Plane Trim", stages.trimmed_mesh, "#f59e0b"),
+            (f"Stage 3: Trimmed & Conformed ({stages.rule_name.capitalize()})\nOutside Nodes Snapped to CAD Surface", stages.conformed_mesh, "#10b981"),
+        ]
+
+    images = []
+    for title, m, col in panels:
+        p = pv.Plotter(off_screen=True, window_size=(700, 800))
+        p.background_color = "#0b121e"
+        p.add_mesh(pv_cad, color="#475569", opacity=0.15, show_edges=False)
+        if m is not None and len(m.faces) > 0:
+            p.add_mesh(pv.wrap(m), color=col, smooth_shading=True, specular=0.4, specular_power=20)
+        p.camera_position = [(-90.0, -120.0, 110.0), (0.0, 3.0, 45.0), (0, 0, 1)]
+        p.camera.zoom(1.18)
+        img = p.screenshot()
+        p.close()
+        images.append((title, img, col))
+
+    fig, axes = plt.subplots(1, 4, figsize=(24, 7), facecolor="#080c10")
+    for ax, (title, img, col) in zip(axes, images):
+        ax.imshow(img)
+        ax.axis("off")
+        ax.set_title(title, color=col, fontsize=12, fontweight="bold", pad=8)
+
+    fig.suptitle(
+        f"Graphite SC Conformation Diagnostics: {stages.rule_name.upper()}\n"
+        f"Cell Size = {stages.cell_size} mm, Strut Diameter = {stages.calculated_strut_diameter:.3f} mm ({stages.target_solid_fraction*100:.1f}% Solid Fraction)",
+        color="#ffffff",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    out_path = Path(output_png_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(str(out_path), dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor(), edgecolor="none")
+    plt.close(fig)
+    return out_path
+

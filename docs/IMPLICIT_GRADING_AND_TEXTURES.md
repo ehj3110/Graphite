@@ -27,6 +27,7 @@ Details: [ARISTO.md](ARISTO.md#product-decision-sep-2026-no-fea-driven-lattice-g
 | **Piecewise Split-P bands** | `piecewise_bands.splitp_piecewise_*_single_pass` | Hard bands of \(L\) / \(\tau\) | Discrete zones (e.g. cube thirds); Gmsh-friendly single-pass EDT | Production |
 | **Piecewise woodpile** | `piecewise_woodpile` / `build_piecewise_woodpile_mesh` | Band pitch / orientation | Cross-hatch woodpile; prefer `generator=extrude` | Production |
 | **Field-driven / lofted** | `field_driven.generate_field_driven_lattice` | Integrated-phase \(L(s)\), SF along spine | Multi-knot continuous grading along X/Y/Z or radius | Production UI path; lofted hex analogue is experimental — [LOFTED_GRADING.md](LOFTED_GRADING.md) |
+| **Normalized SDF Multi-Knot Blend** | `blending.blend_multi_knot_tpms_sdfs` | Metric mid-surface SDF \(L(z)\), \(t(z)\) | Zero coordinate shear, true physical wall thickness, strictly monotonic pore growth | Production — [§3 below](#3-normalized-signed-distance-field-sdf-tpms-blending-vs-jacobian-chirp) |
 | **Boundary dual-EDT** | `boundary_graded.generate_boundary_graded_lattice` | \(L\), SF from distance to start/end surfaces | Non-parallel control surfaces | Production code; UI may be incomplete — [history/CONTROL_SURFACES_PLAN.md](history/CONTROL_SURFACES_PLAN.md) |
 | **Osteochondral Z loft** | `osteochondral` | \(L(z)\), SF\((z)\) piecewise linear | Implant-style height stacks | Production module |
 | **Multi-zonal** | `multi_zonal.generate_multi_zonal_lattice` | Region masks / zones | Multi-region fills | Lab / advanced |
@@ -186,6 +187,50 @@ haired = generate_micropillars(scaffold_mesh, cfg)
 3. `apply_surface_texture` **or** `generate_micropillars` (or texture then pillars — expect heavy meshes)  
 4. Export via `graphite.io.export_mesh`  
 5. Aristo / Vocal only for **analysis**, not to invent the next grade  
+
+---
+
+## 3. Normalized Signed Distance Field (SDF) TPMS Blending vs. Jacobian Chirp
+
+Graphite supports two distinct methodologies for continuous functional grading across spatial intervals. **Neither method is universally ideal; each exhibits distinct engineering strengths and trade-offs:**
+
+```
+Control Surfaces (Jacobian Phase Integration)  <--->  Normalized SDF Blending (Metric Mid-Surface)
+  [+] Monolithic single-body (N_comp = 1-2)             [+] Strictly axial channels (zero shear)
+  [+] Smooth minimal surface (|H| = 12.09 mm⁻¹)         [+] True metric distance field (||∇Φ|| ≈ 1.17)
+  [-] Conical coordinate shear tilts pore conduits       [+] Physical wall thickness control in mm
+  [-] High Eikonal error (||∇F|| ≈ 6.82 mm⁻¹)           [-] Sub-voxel boundary slivers (N_comp = 8-12)
+  [-] Tidemark density ripple (20.7% PTP)                [-] Saddle interference creases (|H| ≈ 17.62 mm⁻¹)
+```
+
+### 3.1 Mathematical Formulations
+
+#### 1. Metric-Normalized Mid-Surface Approximation
+Raw TPMS equations $F(\mathbf{x}) = \sin(k x)\cos(k y) + \dots$ do not satisfy the Eikonal condition $\|\nabla F(\mathbf{x})\| = 1.0$. Gradient magnitude scales with frequency $k = 2\pi/L$. We compute the first-order distance approximation regularized with $\epsilon = 10^{-8}$ and clamped to avoid saddle-point divergence:
+$$\tilde{\phi}(\mathbf{x}) = \text{clip}\left(\frac{F(\mathbf{x})}{\sqrt{\|\nabla F(\mathbf{x})\|^2 + \epsilon}}, -d_{\text{clip}}, d_{\text{clip}}\right), \quad d_{\text{clip}} = \frac{L}{2.0}$$
+
+#### 2. Order of Operations for Sheet Lattices
+To avoid necking and pinching into voids caused by linearly averaging solid boundaries, **we interpolate mid-surfaces, not thickened solids**:
+1. Linearly blend the metric mid-surface distance fields with smoothstep weight $\alpha(\mathbf{x}) \in [0, 1]$:
+   $$\phi_{\text{mid}}(\mathbf{x}) = (1 - \alpha(\mathbf{x}))\,\tilde{\phi}_1(\mathbf{x}) + \alpha(\mathbf{x})\,\tilde{\phi}_2(\mathbf{x})$$
+2. Linearly interpolate the target physical wall thickness:
+   $$t_{\text{blend}}(\mathbf{x}) = (1 - \alpha(\mathbf{x}))\,t_1 + \alpha(\mathbf{x})\,t_2$$
+3. Form the final physical sheet solid field:
+   $$\Phi_{\text{solid}}(\mathbf{x}) = |\phi_{\text{mid}}(\mathbf{x})| - \frac{t_{\text{blend}}(\mathbf{x})}{2.0}$$
+
+### 3.2 Engineering Comparison Matrix
+
+| Engineering Metric | Control Surfaces (Jacobian Phase) | Normalized SDF Blending | Clinical / Manufacturing Implication |
+| :--- | :--- | :--- | :--- |
+| **Channel Alignment** | Conical shear ($U=X\omega, V=Y\omega$) | **Strictly axial (zero shear)** | Joint loading acts vertically; off-axis pores create shear bending under compression. |
+| **Distance Metric Scale** | Non-metric ($\|\nabla F\| \approx 6.82\text{ mm}^{-1}$) | **Near-unit metric ($\|\nabla\Phi\| \approx 1.17\text{ mm}^{-1}$)** | Normalized SDF guarantees physical wall thickness $t$ in millimeters. |
+| **Solid Fraction Stability** | Resonant ripple ($20.7\%$ PTP) | **Damped ripple ($14.9\%$ PTP)** | SDF dampens cross-sectional density ripples below baseline boundary cut noise. |
+| **Pore Size Monotonicity** | Step discontinuity ($160 \to 634\ \mu\text{m}$) | **Strictly monotonic ($160 \to 358 \to 547\ \mu\text{m}$)** | Smooth funnel facilitates continuous cellular migration and vascularization. |
+| **Topological Monolithicity** | **Monolithic ($N_{\text{comp}} = 1 - 2$)** | Boundary slivers ($N_{\text{comp}} = 8 - 12$) | SDF requires automated volume filtering (`mesh.split()`) during post-processing. |
+| **Surface Smoothness** | **Smooth minimal surface ($|H| = 12.09\text{ mm}^{-1}$)** | Saddle crease lines ($|H| = 17.62\text{ mm}^{-1}$)| Crease lines introduce stress concentrators under high cyclic fatigue loading. |
+| **Evaluation Runtime** | **Analytical ($0.28\text{ s}$)** | Numerical gradient ($1.00\text{ s}$) | Control Surfaces evaluate $3.5\times$ faster. |
+
+Detailed case study and high-resolution diagnostic panels: see [osteochondral_transition_cleanness_report.md](../outputs/osteochondral_transition_metrics.json) and `scripts/study_osteochondral_transition_widths.py`.
 
 ---
 

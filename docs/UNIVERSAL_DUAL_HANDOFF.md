@@ -269,3 +269,14 @@ The Planar Slicing Contour Sweep (`graphite.explicit.planar_surface_sweep`) is t
 
 See [PLANAR_SLICING_SURFACE_DUAL_RETROSPECTIVE.md](PLANAR_SLICING_SURFACE_DUAL_RETROSPECTIVE.md) for full engineering retrospective and benchmarks.
 
+---
+
+## Retrospective: Crystallographic Transfer Evaluation (October 2026)
+
+An architectural audit was conducted evaluating whether the crystallographic and heteroepitaxial breakthroughs from the PAM research could be applied to the Universal Surface Dual:
+* **Concept A (Habit-Plane Lattice Orientation): REJECTED.** Not viable for complex organic shapes (e.g. `foam-squeezer.stl`, mouse wrist rest, anatomical implants) where surfaces have continuous multi-axial curvature and no single dominant planar facet. Aligning the grid to one facet distorts all other curved boundaries. The Cartesian volume grid remains the locked standard.
+* **Concept B (Glide-Plane Snapping): REJECTED / UNNECESSARY.** The fundamental purpose of the Universal Surface Dual is to wrap the exterior in a closed triangulated/quad skin net. This skin net inherently supports low-valency boundary nodes, rendering internal glide-plane truncation redundant.
+* **Concepts C & D (Void Barycenters & Dislocation Shifts): REJECTED.** In explicit load-bearing lattices, all struts must remain rigidly welded and connected at shared nodes. Shifting nodes by Burgers vectors ($\mathbf{s}^*$) or projecting them into empty void spaces breaks joints and destroys structural integrity.
+* **Concept E (CSL Commensurate Matching): PROTOTYPED & ARCHIVED.** Validated for multi-scale pitch ($2:3$) and multi-topology (Octahedral-to-Cubic) in `scripts/generate_csl_explicit_demos.py`, but deemed unnecessary for production workflows.
+* **Conclusion:** The locked Nodal Conformation pipeline (Cartesian volume infill, outside-node snapping, and Planar Slicing Contour Sweep surface dual) remains the authoritative production standard for all explicit hexahedral lattices.
+

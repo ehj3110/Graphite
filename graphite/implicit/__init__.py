@@ -72,11 +72,35 @@ from graphite.implicit.micropillars import (
     sample_pillar_anchors,
     segment_cad_boundary,
 )
-from graphite.implicit.blending import blend_lattice_with_skin
+from graphite.implicit.blending import (
+    blend_lattice_with_skin,
+    blend_multi_knot_tpms_sdfs,
+    blend_normalized_sdfs,
+    blend_tpms_lattices,
+    compute_transition_weights,
+)
+from graphite.implicit.normalization import (
+    TPMSNormalizedFieldConfig,
+    compute_field_gradient_numerical,
+    compute_tpms_gradient_analytical,
+    create_thickened_shell_sdf,
+    evaluate_normalized_tpms_mid_sdf,
+    normalize_tpms_sdf,
+)
 from graphite.implicit.spinodal import generate_spinodal_lattice
 
 __all__ = [
     "blend_lattice_with_skin",
+    "blend_multi_knot_tpms_sdfs",
+    "blend_normalized_sdfs",
+    "blend_tpms_lattices",
+    "compute_transition_weights",
+    "TPMSNormalizedFieldConfig",
+    "compute_field_gradient_numerical",
+    "compute_tpms_gradient_analytical",
+    "create_thickened_shell_sdf",
+    "evaluate_normalized_tpms_mid_sdf",
+    "normalize_tpms_sdf",
     "CrossSectionalPoreSizeResult",
     "EffectivePoreSizeResult",
     "MaxInscribedSphereResult",

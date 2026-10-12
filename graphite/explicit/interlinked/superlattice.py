@@ -26,6 +26,8 @@ from typing import Any, Callable, Sequence
 import numpy as np
 import trimesh
 
+import networkx as nx
+
 from .particle import ParticleGeometry, InterlinkedParticle
 from .cell import InterlinkedCell, InterlinkedRegistry, C6TTCell
 from .clearance import check_particle_clearance, compute_pairwise_particle_clearances
@@ -35,8 +37,264 @@ from .epitaxy import (
     analyze_epitaxial_transition,
     EpitaxialAlignment,
     EpitaxialIncompatibilityError,
+    apply_strut_taper,
+    apply_cage_shrinkage,
 )
-from .pams import _tet_ab_templates, _TET_STRUTS
+
+
+@dataclass
+class BufferPathResult:
+    """
+    Result of a Dijkstra pathfinding query through the PAM metamaterial transition graph.
+
+    Attributes:
+        source: Name or key of source unit cell (e.g. 'd4tet').
+        target: Name or key of target unit cell (e.g. 'd4cube').
+        path: Ordered list of cell names along the optimal path (e.g. ['d4tet', 'c6tt', 'd4cube']).
+        total_cost: Summed Dijkstra transition cost along the path.
+        is_direct: True if source transitions directly to target without intermediate buffer cells.
+        intermediate_cells: Ordered list of intermediate buffer cells (excluding source and target).
+        edge_diagnostics: Per-hop edge metadata including clearance, strain, and cost.
+    """
+    source: str
+    target: str
+    path: list[str]
+    total_cost: float
+    is_direct: bool
+    intermediate_cells: list[str]
+    edge_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+
+
+def find_buffer_path(
+    cell_a: str | InterlinkedCell,
+    cell_b: str | InterlinkedCell,
+    habit_plane: str = "100",
+    pitch_a: float = 10.0,
+    wire_radius: float = 0.35,
+    min_clearance: float = 0.100,
+    max_hops: int = 4,
+    w_strain: float = 10.0,
+    w_clearance: float = 1.0,
+    w_hop: float = 0.5,
+    delta_target: float = 0.400,
+) -> BufferPathResult:
+    """
+    Clearance & Strain Weighted Dijkstra Pathfinding (Strategy 3 Option B).
+
+    Finds the optimal sequence of intermediate buffer cells to transition between
+    two distinct PAM unit cell classes when direct planar transition is impeded
+    by aperture frustration or lattice mismatch.
+
+    Cost function per edge e = (u, v):
+        Cost(e) = w_strain * epsilon + w_clearance * (delta_target / max(Delta, 1e-4)) + w_hop
+
+    Args:
+        cell_a: Source unit cell name or instance.
+        cell_b: Target unit cell name or instance.
+        habit_plane: Interface habit plane ('100', '110', '111').
+        pitch_a: Unit cell pitch of source cell.
+        wire_radius: Strut wire radius in mm.
+        min_clearance: Required minimum physical clearance in mm.
+        max_hops: Maximum intermediate path length.
+        w_strain: Weight for lattice mismatch strain penalty.
+        w_clearance: Weight for inverse clearance penalty.
+        w_hop: Weight for path hop length penalty.
+        delta_target: Target clearance baseline (default 0.400 mm = 400 um).
+
+    Returns:
+        BufferPathResult containing the optimal path and diagnostic metrics.
+    """
+    name_a = (
+        getattr(cell_a, "name", str(cell_a))
+        .lower()
+        .replace("-", "")
+        .replace("_", "")
+    )
+    name_b = (
+        getattr(cell_b, "name", str(cell_b))
+        .lower()
+        .replace("-", "")
+        .replace("_", "")
+    )
+
+    # 1. Quick Direct Transition Check
+    try:
+        direct_res = analyze_epitaxial_transition(
+            cell_a,
+            cell_b,
+            habit_plane=habit_plane,
+            pitch_a=pitch_a,
+            wire_radius=wire_radius,
+            min_clearance=min_clearance,
+            enable_taper=True,
+        )
+        if direct_res.is_feasible and direct_res.min_clearance_mm >= min_clearance:
+            clr = direct_res.min_clearance_mm
+            strain = direct_res.alignment.strain if direct_res.alignment else 0.0
+            cost = w_strain * strain + w_clearance * (delta_target / max(clr, 1e-4)) + w_hop
+            return BufferPathResult(
+                source=name_a,
+                target=name_b,
+                path=[name_a, name_b],
+                total_cost=float(cost),
+                is_direct=True,
+                intermediate_cells=[],
+                edge_diagnostics=[{
+                    "from": name_a,
+                    "to": name_b,
+                    "clearance_mm": clr,
+                    "strain": strain,
+                    "cost": float(cost),
+                }],
+            )
+    except Exception:
+        pass
+
+    # 2. Lazy Dijkstra Shortest Path Search using Priority Queue
+    import heapq
+
+    pam_nodes = [
+        "c6tt", "d4tet", "d4cube", "d4ct", "d4ico",
+        "b8co", "c6co", "j4oct", "j4ring", "t6ring", "t6hex",
+    ]
+    all_nodes = list(dict.fromkeys([name_a] + pam_nodes + [name_b]))
+
+    def _eval_edge(u: str, v: str) -> dict[str, Any] | None:
+        try:
+            res = analyze_epitaxial_transition(
+                u,
+                v,
+                habit_plane=habit_plane,
+                pitch_a=pitch_a,
+                wire_radius=wire_radius,
+                min_clearance=min_clearance,
+                enable_taper=True,
+            )
+            if res.is_feasible and res.min_clearance_mm >= min_clearance:
+                clr = res.min_clearance_mm
+                strain = res.alignment.strain if res.alignment else 0.0
+                cost = float(w_strain * strain + w_clearance * (delta_target / max(clr, 1e-4)) + w_hop)
+                return {
+                    "weight": cost,
+                    "clearance": clr,
+                    "strain": strain,
+                }
+        except Exception:
+            pass
+        return None
+
+    edge_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
+    pq: list[tuple[float, str, list[str]]] = [(0.0, name_a, [name_a])]
+    visited: set[str] = set()
+
+    while pq:
+        cost, u, path = heapq.heappop(pq)
+        if u == name_b and len(path) > 1:
+            intermediates = path[1:-1]
+            diagnostics = []
+            for i in range(len(path) - 1):
+                e_data = edge_cache.get((path[i], path[i + 1])) or {}
+                diagnostics.append({
+                    "from": path[i],
+                    "to": path[i + 1],
+                    "clearance_mm": e_data.get("clearance", 0.0),
+                    "strain": e_data.get("strain", 0.0),
+                    "cost": e_data.get("weight", 0.0),
+                })
+            return BufferPathResult(
+                source=name_a,
+                target=name_b,
+                path=path,
+                total_cost=float(cost),
+                is_direct=(len(intermediates) == 0),
+                intermediate_cells=intermediates,
+                edge_diagnostics=diagnostics,
+            )
+
+        if u in visited or len(path) > max_hops + 1:
+            continue
+        visited.add(u)
+
+        for v in all_nodes:
+            if v == u or v in visited:
+                continue
+            pair = (u, v)
+            if pair not in edge_cache:
+                edge_cache[pair] = _eval_edge(u, v)
+            e_info = edge_cache[pair]
+            if e_info is not None:
+                heapq.heappush(pq, (cost + e_info["weight"], v, path + [v]))
+
+    return BufferPathResult(
+        source=name_a,
+        target=name_b,
+        path=[],
+        total_cost=float("inf"),
+        is_direct=False,
+        intermediate_cells=[],
+    )
+
+
+def build_auto_buffer_superlattice(
+    cell_a: str | InterlinkedCell,
+    cell_b: str | InterlinkedCell,
+    grid_size: tuple[int, int, int] = (2, 2, 2),
+    buffer_layers_per_zone: int = 2,
+    habit_plane: str = "100",
+    pitch_a: float | None = None,
+    pitch_b: float | None = None,
+    wire_radius: float = 0.35,
+    min_clearance: float = 0.100,
+    **kwargs: Any,
+) -> SuperlatticeConfig:
+    """
+    Construct a multi-zone SuperlatticeConfig automatically inserting intermediate
+    buffer layers (Strategy 3) between cell_a and cell_b when direct transition is incompatible.
+    """
+    p_a = float(pitch_a if pitch_a is not None else 10.0)
+    buf_result = find_buffer_path(
+        cell_a=cell_a,
+        cell_b=cell_b,
+        habit_plane=habit_plane,
+        pitch_a=p_a,
+        wire_radius=wire_radius,
+        min_clearance=min_clearance,
+    )
+
+    if not buf_result.path:
+        zones = [
+            LatticeZoneConfig(cell=cell_a, num_layers=grid_size[0], pitch=pitch_a, habit_plane=habit_plane),
+            LatticeZoneConfig(cell=cell_b, num_layers=grid_size[0], pitch=pitch_b, habit_plane=habit_plane),
+        ]
+    else:
+        zones = []
+        for i, cell_name in enumerate(buf_result.path):
+            if i == 0:
+                n_layers = grid_size[0]
+                pitch = pitch_a
+            elif i == len(buf_result.path) - 1:
+                n_layers = grid_size[0]
+                pitch = pitch_b
+            else:
+                n_layers = buffer_layers_per_zone
+                pitch = None  # Resolved sequentially
+            zones.append(
+                LatticeZoneConfig(
+                    cell=cell_name,
+                    num_layers=n_layers,
+                    pitch=pitch,
+                    habit_plane=habit_plane,
+                    metadata={"buffer_zone": (0 < i < len(buf_result.path) - 1)},
+                )
+            )
+
+    return SuperlatticeConfig(
+        zones=zones,
+        grid_transverse=(grid_size[1], grid_size[2]),
+        wire_radius=wire_radius,
+        min_clearance=min_clearance,
+        **kwargs,
+    )
 
 
 @dataclass
@@ -117,11 +375,21 @@ def generate_epitaxial_superlattice(
         else:
             raise TypeError(f"Zone {idx}: Unsupported cell type {type(cell_obj)}")
 
-        pitch = float(z_cfg.pitch) if z_cfg.pitch is not None else 10.0
-        # If D4Tet following C6TT, default pitch to sqrt(2) * a_sc
-        if getattr(cell_inst, "parent_network", "") == "dia" and z_cfg.pitch is None:
-            prev_pitch = resolved_zones[-1]["pitch"] if resolved_zones else 10.0
-            pitch = float(np.sqrt(2.0) * prev_pitch)
+        if z_cfg.pitch is not None:
+            pitch = float(z_cfg.pitch)
+        elif resolved_zones:
+            prev_cell = resolved_zones[-1]["cell"]
+            prev_pitch = resolved_zones[-1]["pitch"]
+            prev_net = getattr(prev_cell, "parent_network", "pcu").lower().strip()
+            curr_net = getattr(cell_inst, "parent_network", "pcu").lower().strip()
+            if prev_net in ("pcu", "bcc") and curr_net == "dia":
+                pitch = float(np.sqrt(2.0) * prev_pitch)
+            elif prev_net == "dia" and curr_net in ("pcu", "bcc"):
+                pitch = float(prev_pitch / np.sqrt(2.0))
+            else:
+                pitch = float(prev_pitch)
+        else:
+            pitch = 10.0
 
         resolved_zones.append({
             "config": z_cfg,
@@ -151,6 +419,7 @@ def generate_epitaxial_superlattice(
     particles: list[InterlinkedParticle] = []
     pid = 0
     current_x = 0.0
+    cumulative_transverse = np.array([0.0, 0.0], dtype=np.float64)
     cumulative_R = np.eye(3, dtype=np.float64)
 
     for k, z_info in enumerate(resolved_zones):
@@ -160,84 +429,86 @@ def generate_epitaxial_superlattice(
         zone_tag = f"Zone_{k}_{getattr(cell, 'name', 'Cell')}"
 
         if getattr(cell, "parent_network", "") == "dia":
-            # Diamond FCC rotated basis
-            L_tet = 0.603 * pitch
-            proto_a = ParticleGeometry(nodes=_tet_ab_templates(L_tet)[0], struts=_TET_STRUTS.copy(), bounding_radius=L_tet, geometry_type="TET")
-            proto_b = ParticleGeometry(nodes=_tet_ab_templates(L_tet)[1], struts=_TET_STRUTS.copy(), bounding_radius=L_tet, geometry_type="TET")
+            from .pams import diamond_network_sites
+            sites = diamond_network_sites((n_layers, ny, nz), pitch)
+            for pos, sub in sites:
+                site_parts = cell.instantiate_site(
+                    grid_index=(int(np.floor(pos[0] / pitch)), int(np.floor(pos[1] / pitch)), int(np.floor(pos[2] / pitch))),
+                    site_origin=np.zeros(3, dtype=np.float64),
+                    cell_pitch=pitch,
+                    id_start=pid,
+                    context={"sublattice": sub, "site_frame": cumulative_R},
+                )
+                for p in site_parts:
+                    R_world = cumulative_R @ p.rotation
+                    t_world = (cumulative_R @ pos) + np.array([current_x, cumulative_transverse[0], cumulative_transverse[1]]) + cumulative_R @ p.center
+                    T = np.eye(4, dtype=np.float64)
+                    T[:3, :3] = R_world
+                    T[:3, 3] = t_world
+                    p.transform = T
+                    p.particle_id = pid
+                    p.sublattice_id = sub
+                    p.metadata["zone"] = zone_tag
+                    p.metadata["zone_idx"] = k
+                    p.metadata["layer_x"] = int(np.floor(pos[0] / pitch))
+                    particles.append(p)
+                    pid += 1
 
-            w_y = (ny - 1) * 10.0
-            w_z = (nz - 1) * 10.0
-            margin = 1.0
-            y_min, y_max = -margin, w_y + margin
-            z_min, z_max = -margin, w_z + margin
-
-            y_dia_min = (y_min + z_min) / np.sqrt(2.0)
-            y_dia_max = (y_max + z_max) / np.sqrt(2.0)
-            z_dia_min = (z_min - y_max) / np.sqrt(2.0)
-            z_dia_max = (z_max - y_min) / np.sqrt(2.0)
-
-            j_min = int(np.floor(y_dia_min / pitch)) - 1
-            j_max = int(np.ceil(y_dia_max / pitch)) + 1
-            k_min = int(np.floor(z_dia_min / pitch)) - 1
-            k_max = int(np.ceil(z_dia_max / pitch)) + 1
-
-            fcc_offsets = [(0.0, 0.0, 0.0), (0.5, 0.5, 0.0), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5)]
-            basis_b_vec = np.array([0.25, 0.25, 0.25], dtype=np.float64) * pitch
-            seen_sites: set[tuple[float, float, float]] = set()
-
-            for i in range(n_layers):
-                for j in range(j_min, j_max + 1):
-                    for kk in range(k_min, k_max + 1):
-                        cell_orig = np.array([i, j, kk], dtype=np.float64) * pitch
-                        for fcc in fcc_offsets:
-                            pA = cell_orig + np.asarray(fcc, dtype=np.float64) * pitch
-                            pB = pA + basis_b_vec
-                            for p_raw, sub in [(pA, "A"), (pB, "B")]:
-                                key = (round(float(p_raw[0]), 3), round(float(p_raw[1]), 3), round(float(p_raw[2]), 3))
-                                if key in seen_sites:
-                                    continue
-                                seen_sites.add(key)
-                                pos_rot = cumulative_R @ p_raw
-                                if (y_min - 1e-4 <= pos_rot[1] <= y_max + 1e-4 and
-                                    z_min - 1e-4 <= pos_rot[2] <= z_max + 1e-4 and
-                                    0.0 <= pos_rot[0] <= pitch * (n_layers - 0.5)):
-                                    geom = proto_a if sub == "A" else proto_b
-                                    T = np.eye(4, dtype=np.float64)
-                                    T[:3, :3] = cumulative_R
-                                    T[:3, 3] = pos_rot + np.array([current_x, 0.0, 0.0])
-                                    p = InterlinkedParticle(
-                                        particle_id=pid,
-                                        geometry=geom,
-                                        transform=T,
-                                        sublattice_id=sub,
-                                        metadata={"zone": zone_tag, "zone_idx": k, "layer_x": i},
-                                    )
-                                    particles.append(p)
-                                    pid += 1
-
-            current_x += pitch * (n_layers - 0.5)
+            last_layer_x = current_x + pitch * (n_layers - 1)
 
         else:
             # Simple Cubic / Cartesian basis
             for ix in range(n_layers):
                 for iy in range(ny):
                     for iz in range(nz):
-                        origin = np.array([current_x + ix * pitch, iy * pitch, iz * pitch], dtype=np.float64)
-                        parts = cell.instantiate_site((ix, iy, iz), origin, pitch, id_start=pid)
+                        origin = np.array([current_x + ix * pitch, iy * pitch + cumulative_transverse[0], iz * pitch + cumulative_transverse[1]], dtype=np.float64)
+                        parts = cell.instantiate_site(
+                            (ix, iy, iz),
+                            origin,
+                            pitch,
+                            id_start=pid,
+                            context={"site_frame": cumulative_R},
+                        )
                         for p in parts:
+                            if cumulative_R is not None and not np.allclose(cumulative_R, np.eye(3)):
+                                R_world = cumulative_R @ p.rotation
+                                t_world = (cumulative_R @ (p.center - origin)) + origin
+                                T = np.eye(4, dtype=np.float64)
+                                T[:3, :3] = R_world
+                                T[:3, 3] = t_world
+                                p.transform = T
                             p.metadata["zone"] = zone_tag
                             p.metadata["zone_idx"] = k
                             p.metadata["layer_x"] = ix
                             particles.append(p)
                             pid += 1
 
-            current_x += n_layers * pitch
+            last_layer_x = current_x + pitch * (n_layers - 1)
 
         # Step interface offset to next zone if another zone follows
         if k < len(alignments):
-            dx_int = float(alignments[k].interface_offset)
-            current_x += dx_int - pitch
-            cumulative_R = cumulative_R @ alignments[k].rotation_matrix
+            align = alignments[k]
+            dx_int = float(align.phase_shift[0])
+            dy_int = float(align.phase_shift[1])
+            dz_int = float(align.phase_shift[2])
+            current_x = last_layer_x + dx_int
+            cumulative_transverse += np.array([dy_int, dz_int], dtype=np.float64)
+            cumulative_R = cumulative_R @ align.rotation_matrix
+
+    # Apply solved boundary tapering and shrinkage per interface
+    for k in range(len(alignments)):
+        align = alignments[k]
+        if align.taper_gamma < 1.0:
+            from .epitaxy import apply_strut_taper
+            z_curr_parts = [p for p in particles if p.metadata.get("zone_idx") == k]
+            z_next_parts = [p for p in particles if p.metadata.get("zone_idx") == k + 1]
+            max_layer_curr = max((p.metadata.get("layer_x", 0) for p in z_curr_parts), default=0)
+            apply_strut_taper(z_curr_parts, gamma=align.taper_gamma, boundary_layers=(max_layer_curr,))
+            apply_strut_taper(z_next_parts, gamma=align.taper_gamma, boundary_layers=(0,))
+        if align.shrink_eta < 1.0:
+            from .epitaxy import apply_cage_shrinkage
+            z_next_parts = [p for p in particles if p.metadata.get("zone_idx") == k + 1]
+            apply_cage_shrinkage(z_next_parts, eta=align.shrink_eta, boundary_layers=(0,))
 
     # Thickness Grading (if configured)
     centers_all = np.array([p.center for p in particles], dtype=np.float64) if particles else np.zeros((0, 3))
@@ -306,6 +577,8 @@ def generate_epitaxial_superlattice(
             "min_clearance_mm": float(min_clr_found),
             "clearance_valid": bool(clr_valid),
             "alignments": alignments,
+            "cell_a": getattr(resolved_zones[0]["cell"], "name", str(resolved_zones[0]["cell"])),
+            "cell_b": getattr(resolved_zones[-1]["cell"], "name", str(resolved_zones[-1]["cell"])),
         },
         particles=particles,
     )

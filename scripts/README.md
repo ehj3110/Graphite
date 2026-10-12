@@ -73,13 +73,23 @@ Outputs: `outputs/case_studies/cube_1mm/` — see [docs/CUBE_1MM_THREE_LATTICE_C
 | [`export_trophy_base_thin_conformal_dual.py`](export_trophy_base_thin_conformal_dual.py) | Trophy base — Conformal Dual (Method A) |
 | [`run_adapter_lattice.py`](run_adapter_lattice.py) | Adapter / Delaunay Kagome pipeline |
 
-### Explicit interlinked / chainmail
+### Explicit 2D & surface-conformal lattices
 
 | Script | Role |
 |--------|------|
+| [`generate_surface_lattice.py`](generate_surface_lattice.py) | Canonical CLI for 2D planar plates, graded auxetics/chirals, cylindrical wraps, and sine forming sheets |
+
+### Explicit interlinked / chainmail & PAMs
+
+| Script | Role |
+|--------|------|
+| [`generate_pam.py`](generate_pam.py) | **Turnkey Generator CLI** for print-ready 3D interlinked metamaterials & 2D fabrics (`--preset`, `--box`, `--strut`, `--clearance`, `--frame`, `--preview`, `--dry-run`) |
+| [`dimension_pam.py`](dimension_pam.py) | Universal Analytical PAM Dimensioning & Sizing CLI (resolves pitch, wire diameter, clearance, volume fraction, jamming limits, and physical cage outer diameters) |
+| [`pam_gallery.py`](pam_gallery.py) | Headless scientific visualization & gallery generator with matte scientific shading, sublattice coloring, and longitudinal cutaways |
+| [`pam_workbench.py`](pam_workbench.py) | Two-particle experimental workbench for fast (<100 ms) clearance, clash volume, and Gauss linking parameter sweeps |
 | [`generate_interlinked_review.py`](generate_interlinked_review.py) | European 4-in-1, Kusari, and 2x2x2 cube review deliverables generator |
-| [`generate_graded_c6tt_pam_figure.py`](generate_graded_c6tt_pam_figure.py) | Figure 1: Graded C-6-TT PAM with continuous strut thickness gradient along one axis ($r = 0.22 \to 0.58\text{ mm}$) |
-| [`generate_transition_c6_to_d4_figure.py`](generate_transition_c6_to_d4_figure.py) | Figure 2: Continuous 6-stage spatial blending transition lattice between C-6-TT and D-4-TET PAMs ($6 \times 2 \times 2 = 24$ cages) |
+| [`generate_graded_c6tt_pam_figure.py`](generate_graded_c6tt_pam_figure.py) | Graded C-6-TT PAM with continuous strut thickness gradient along one axis ($r = 0.22 \to 0.58\text{ mm}$) |
+| [`generate_transition_c6_to_d4_figure.py`](generate_transition_c6_to_d4_figure.py) | Continuous 6-stage spatial blending transition lattice between C-6-TT and D-4-TET PAMs ($6 \times 2 \times 2 = 24$ cages) |
 
 ---
 

@@ -67,6 +67,7 @@ class InterlinkedCell(Protocol):
     parent_network: str
     basis_particles: list[BasisParticle]
     coordination_number: int
+    preferred_seeding_type: str  # 'cartesian', 'bcc', 'diamond' — auto-selected by generator if seeding_type not set
     neighbor_catenation_offsets: list[tuple[int, int, int]]
 
     def forward_clearance(
@@ -93,6 +94,18 @@ class InterlinkedCell(Protocol):
         """
         ...
 
+    def resolve_dimensions(
+        self,
+        target_clearance: float,
+        target_solid_fraction: float,
+        **kwargs: Any,
+    ) -> tuple[float, float]:
+        """
+        2-parameter inverse solver: Determine (unit_cell_pitch a, strut_diameter d)
+        from target_clearance (mm) and target_solid_fraction (0 < Vf < 1).
+        """
+        ...
+
     def instantiate_site(
         self,
         grid_index: tuple[int, int, int],
@@ -105,6 +118,23 @@ class InterlinkedCell(Protocol):
         Instantiate and place all BasisParticles for a specific spatial lattice site.
         """
         ...
+
+    def get_face_cycles(self) -> list[list[int]]:
+        """
+        Return fundamental face cycles of the unit cell particle prototype.
+        """
+        ...
+
+
+class InterlinkedCellBase:
+    """
+    Base class providing common default methods for InterlinkedCell implementations.
+    """
+    def get_face_cycles(self) -> list[list[int]]:
+        """Return fundamental face cycles of the primary particle prototype."""
+        if hasattr(self, "basis_particles") and self.basis_particles:
+            return self.basis_particles[0].geometry.get_face_cycles()
+        return []
 
 
 class InterlinkedRegistry:
@@ -208,7 +238,7 @@ def _build_truncated_tetrahedron_geometry(size: float = 1.0) -> ParticleGeometry
 
 @InterlinkedRegistry.register("c6tt")
 @InterlinkedRegistry.register("c-6-tt")
-class C6TTCell:
+class C6TTCell(InterlinkedCellBase):
     """
     Simple Cubic Truncated Tetrahedron (C-6-TT) PAM Unit Cell.
     Zhou et al., Science 2025. 6-fold face catenation on Simple Cubic network.
@@ -217,6 +247,7 @@ class C6TTCell:
     family: str = "pam_polyhedra"
     parent_network: str = "pcu"
     coordination_number: int = 6
+    preferred_seeding_type: str = "cartesian"
     neighbor_catenation_offsets: list[tuple[int, int, int]] = [
         (1, 0, 0), (-1, 0, 0),
         (0, 1, 0), (0, -1, 0),
@@ -227,6 +258,7 @@ class C6TTCell:
     # Delta = kappa * a0 - D_strut, with kappa ≈ 0.131370
     CLEARANCE_KAPPA: float = 0.131370
     DEFAULT_SIZE_RATIO: float = 0.80  # cage_size / a0 = 1 / 1.25
+    SOLID_VOLUME_COEFFICIENT: float = 7.5398223026488465
 
     def __init__(self, size_ratio: float = 0.80):
         self.size_ratio = float(size_ratio)
@@ -269,6 +301,17 @@ class C6TTCell:
         tc = float(target_clearance)
         d = float(strut_diameter)
         return float((tc + d) / self.CLEARANCE_KAPPA)
+
+    def resolve_dimensions(
+        self,
+        target_clearance: float,
+        target_solid_fraction: float,
+        **kwargs: Any,
+    ) -> tuple[float, float]:
+        """Determine (pitch a, strut_diameter d) from target clearance and solid fraction."""
+        from .dimensioning import PAMDimensioner
+        res = PAMDimensioner.solve_from_clearance_and_vf(self, target_clearance, target_solid_fraction, **kwargs)
+        return (res.pitch, res.wire_diameter)
 
     def habit_plane_aperture(self, plane: str = "100", size: float = 8.0) -> float:
         """Internal clearance aperture diameter (mm) along specified habit plane."""

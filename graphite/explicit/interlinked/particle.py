@@ -30,14 +30,32 @@ class ParticleGeometry:
     """
     nodes: np.ndarray
     struts: np.ndarray
-    bounding_radius: float
+    bounding_radius: float = 0.0
     geometry_type: str = "wireframe"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        object.__setattr__(self, "nodes", np.asarray(self.nodes, dtype=np.float64))
-        object.__setattr__(self, "struts", np.asarray(self.struts, dtype=np.int64))
-        object.__setattr__(self, "bounding_radius", float(self.bounding_radius))
+        nodes = np.asarray(self.nodes, dtype=np.float64)
+        struts = np.asarray(self.struts, dtype=np.int64)
+        object.__setattr__(self, "nodes", nodes)
+        object.__setattr__(self, "struts", struts)
+        r = float(self.bounding_radius)
+        if r <= 0.0 and len(nodes) > 0:
+            r = float(np.max(np.linalg.norm(nodes, axis=1)))
+        object.__setattr__(self, "bounding_radius", r)
+
+    def get_face_cycles(self) -> list[list[int]]:
+        """Return fundamental face cycles of this particle geometry."""
+        if len(self.nodes) == 0 or len(self.struts) == 0:
+            return []
+        g_type = str(self.geometry_type).lower()
+        if g_type in ("ring", "torus") or "major_radius" in self.metadata:
+            return [list(range(len(self.nodes)))]
+        import networkx as nx
+        G = nx.Graph()
+        for u, v in self.struts:
+            G.add_edge(int(u), int(v))
+        return nx.cycle_basis(G)
 
 
 @dataclass
@@ -113,6 +131,10 @@ class InterlinkedParticle:
     def global_bounding_sphere(self) -> tuple[np.ndarray, float]:
         """Return (center, bounding_radius) in global coordinate space."""
         return self.center, self.bounding_radius
+
+    def get_face_cycles(self) -> list[list[int]]:
+        """Return fundamental face cycles of this particle."""
+        return self.geometry.get_face_cycles()
 
     def __iter__(self):
         """Allows direct tuple unpacking: nodes, struts = particle."""

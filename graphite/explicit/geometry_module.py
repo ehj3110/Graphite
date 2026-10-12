@@ -171,102 +171,48 @@ affine_rows_from_R_t = _affine_rows_from_R_t
 trimesh_to_manifold = _trimesh_to_manifold
 
 
-def _build_clean_miter_strut_manifolds(
+
+
+def _build_node_miter_hulls(
     nodes: np.ndarray,
     struts: np.ndarray,
     radii: np.ndarray,
-    circular_segments: int = 16,
+    cylinders: list[manifold3d.Manifold],
 ) -> list[manifold3d.Manifold]:
     """
-    Build cylinder primitives with clean mitered joints at all nodes.
-
-    For each strut, both ends are extended past incident nodes and trimmed by the
-    mutual bisector planes of adjacent struts meeting at each node. Eliminates
-    flat cutoff caps and corner notches.
+    Construct convex hull caps at nodes where >= 2 struts meet.
+    Eliminates flat cutoff corner notches without creating spherical bulges.
     """
-    nodes_np = np.asarray(nodes, dtype=np.float64)
-    struts_np = np.asarray(struts, dtype=np.int64)
+    num_nodes = len(nodes)
+    node_struts: dict[int, list[int]] = {i: [] for i in range(num_nodes)}
+    for s_idx, (a, b) in enumerate(struts):
+        node_struts[int(a)].append(s_idx)
+        node_struts[int(b)].append(s_idx)
 
-    adj: dict[int, list[tuple[int, int, np.ndarray]]] = {i: [] for i in range(len(nodes_np))}
-    for s_idx, (a, b) in enumerate(struts_np):
-        va = nodes_np[a]
-        vb = nodes_np[b]
-        seg = vb - va
-        length = float(np.linalg.norm(seg))
-        if length > 1e-9:
-            ua = seg / length
-            adj[a].append((b, s_idx, ua))
-            adj[b].append((a, s_idx, -ua))
-
-    def _cylinder_between(p0, p1, r):
-        seg = p1 - p0
-        length = float(np.linalg.norm(seg))
-        if length <= 1e-9:
-            return None
-        u = seg / length
-        mid = 0.5 * (p0 + p1)
-        R = _rotation_align_local_z_to_unit(u)
-        cyl = manifold3d.Manifold.cylinder(
-            height=length,
-            radius_low=float(r),
-            radius_high=float(r),
-            circular_segments=int(circular_segments),
-            center=True,
-        )
-        return cyl.transform(_affine_rows_from_R_t(R, mid))
-
-    strut_parts: list[manifold3d.Manifold] = []
-    for s_idx, (a, b) in enumerate(struts_np):
-        va = nodes_np[a]
-        vb = nodes_np[b]
-        seg = vb - va
-        length = float(np.linalg.norm(seg))
-        if length <= 1e-9:
+    hulls: list[manifold3d.Manifold] = []
+    for ni in range(num_nodes):
+        incident = node_struts[ni]
+        if len(incident) < 2:
             continue
-        u_ab = seg / length
-        r_i = float(radii[s_idx])
+        node_pt = nodes[ni]
+        pts = []
+        for s_idx in incident:
+            cyl = cylinders[s_idx]
+            if cyl is None:
+                continue
+            r_s = float(radii[s_idx])
+            v = np.asarray(cyl.to_mesh().vert_properties, dtype=np.float64)
+            dists = np.linalg.norm(v - node_pt, axis=1)
+            pts.extend(v[dists <= r_s * 1.05])
 
-        neighbors_a = [entry for entry in adj[a] if entry[1] != s_idx]
-        delta_a = 0.0
-        if neighbors_a:
-            cos_angles = [float(np.clip(np.dot(u_ab, n_entry[2]), -1.0, 1.0)) for n_entry in neighbors_a]
-            min_angle = min(np.arccos(cos_angles))
-            delta_a = r_i / np.tan(max(min_angle * 0.5, np.radians(15.0)))
-
-        neighbors_b = [entry for entry in adj[b] if entry[1] != s_idx]
-        delta_b = 0.0
-        if neighbors_b:
-            u_ba = -u_ab
-            cos_angles = [float(np.clip(np.dot(u_ba, n_entry[2]), -1.0, 1.0)) for n_entry in neighbors_b]
-            min_angle = min(np.arccos(cos_angles))
-            delta_b = r_i / np.tan(max(min_angle * 0.5, np.radians(15.0)))
-
-        p_start = va - delta_a * u_ab
-        p_end = vb + delta_b * u_ab
-        cyl = _cylinder_between(p_start, p_end, r_i)
-        if cyl is None:
-            continue
-
-        for (_, _, u_an) in neighbors_a:
-            b_plane = u_ab - u_an
-            norm_b = float(np.linalg.norm(b_plane))
-            if norm_b > 1e-9:
-                b_plane /= norm_b
-                off = float(np.dot(b_plane, va))
-                cyl = cyl.trim_by_plane(tuple(float(x) for x in b_plane), off)
-
-        u_ba = -u_ab
-        for (_, _, u_bn) in neighbors_b:
-            b_plane = u_ba - u_bn
-            norm_b = float(np.linalg.norm(b_plane))
-            if norm_b > 1e-9:
-                b_plane /= norm_b
-                off = float(np.dot(b_plane, vb))
-                cyl = cyl.trim_by_plane(tuple(float(x) for x in b_plane), off)
-
-        strut_parts.append(cyl)
-
-    return strut_parts
+        if len(pts) >= 4:
+            try:
+                hull_mesh = trimesh.convex.convex_hull(np.array(pts))
+                if len(hull_mesh.faces) > 0 and hull_mesh.is_watertight:
+                    hulls.append(_trimesh_to_manifold(hull_mesh))
+            except Exception:
+                pass
+    return hulls
 
 
 def build_clean_miter_truss(
@@ -278,9 +224,9 @@ def build_clean_miter_truss(
     """
     Build explicit wireframe truss solid with true clean mitered joints at all nodes.
 
-    For each strut, both ends are extended past incident nodes and trimmed by the mutual
-    bisector planes of adjacent struts meeting at each node. Eliminates flat cutoff caps
-    and corner notches.
+    Constructs cylinder primitives along all struts, fills corner vertices with tight
+    convex hull miter caps at all junctions (no spherical bulges, no flat cutoff notches),
+    and unions them via Manifold3D batch boolean.
 
     Args:
         nodes: (N, 3) node coordinates.
@@ -294,13 +240,44 @@ def build_clean_miter_truss(
     radii = np.atleast_1d(np.asarray(strut_radius, dtype=np.float64))
     if radii.ndim == 0 or len(radii) == 1:
         radii = np.full(len(struts), float(radii[0]))
-    parts = _build_clean_miter_strut_manifolds(
-        nodes, struts, radii, circular_segments=circular_segments
-    )
-    if not parts:
+    nodes_np = np.asarray(nodes, dtype=np.float64)
+    struts_np = np.asarray(struts, dtype=np.int64)
+    if len(nodes_np) == 0 or len(struts_np) == 0:
+        raise ValueError("Cannot build truss: no nodes or struts.")
+
+    cyls = []
+    for i, (a_idx, b_idx) in enumerate(struts_np):
+        r_i = float(radii[i])
+        cyl = _manifold_cylinder_between(
+            nodes_np[int(a_idx)],
+            nodes_np[int(b_idx)],
+            r_i,
+            trim_radius=0.0,
+            circular_segments=circular_segments,
+        )
+        if cyl is not None:
+            cyls.append(cyl)
+
+    if not cyls:
         raise ValueError("Cannot build truss: no valid strut manifolds generated.")
-    united = manifold3d.Manifold.compose(parts)
-    return _manifold_to_trimesh(united)
+
+    hulls = _build_node_miter_hulls(nodes_np, struts_np, radii, cyls)
+    all_parts = cyls + hulls
+
+    try:
+        united = manifold3d.Manifold.batch_boolean(all_parts, manifold3d.OpType.Add)
+    except Exception:
+        united = manifold3d.Manifold.compose(all_parts)
+
+    raw_mesh = united.to_mesh()
+    mesh = trimesh.Trimesh(
+        vertices=np.asarray(raw_mesh.vert_properties, dtype=np.float64),
+        faces=np.asarray(raw_mesh.tri_verts, dtype=np.int64),
+        process=False,
+    )
+    return mesh
+
+
 
 
 def _skin_strut_ribbon_frame(
@@ -720,34 +697,34 @@ def generate_geometry(
 
     n_seg = max(8, int(circular_segments))
 
-    if clean_miter and not add_spheres:
-        manifold_objects = _build_clean_miter_strut_manifolds(
-            nodes_np, struts_np, radii, circular_segments=n_seg
+    cyls: list[manifold3d.Manifold | None] = []
+    for i, (a_idx, b_idx) in enumerate(struts_np):
+        r_i = float(radii[i])
+        trim_r = r_i if do_trim else 0.0
+        cyl = _manifold_cylinder_between(
+            nodes_np[int(a_idx)],
+            nodes_np[int(b_idx)],
+            r_i,
+            trim_radius=trim_r,
+            circular_segments=n_seg,
         )
-    else:
-        for i, (a_idx, b_idx) in enumerate(struts_np):
-            r_i = float(radii[i])
-            trim_r = r_i if do_trim else 0.0
-            cyl = _manifold_cylinder_between(
-                nodes_np[int(a_idx)],
-                nodes_np[int(b_idx)],
-                r_i,
-                trim_radius=trim_r,
-                circular_segments=n_seg,
-            )
-            if cyl is not None:
-                manifold_objects.append(cyl)
+        cyls.append(cyl)
+        if cyl is not None:
+            manifold_objects.append(cyl)
 
-        if add_spheres:
-            scale = float(joint_sphere_scale)
-            for ni in range(nodes_np.shape[0]):
-                r_node = float(node_max_r[ni]) * scale
-                if r_node > 0.0:
-                    manifold_objects.append(
-                        manifold3d.Manifold.sphere(
-                            r_node, circular_segments=n_seg
-                        ).translate(tuple(float(x) for x in nodes_np[ni]))
-                    )
+    if add_spheres:
+        scale = float(joint_sphere_scale)
+        for ni in range(nodes_np.shape[0]):
+            r_node = float(node_max_r[ni]) * scale
+            if r_node > 0.0:
+                manifold_objects.append(
+                    manifold3d.Manifold.sphere(
+                        r_node, circular_segments=n_seg
+                    ).translate(tuple(float(x) for x in nodes_np[ni]))
+                )
+    elif clean_miter:
+        hulls = _build_node_miter_hulls(nodes_np, struts_np, radii, cyls)
+        manifold_objects.extend(hulls)
 
     if not manifold_objects:
         raise ValueError(
@@ -761,7 +738,15 @@ def generate_geometry(
     # Step 3: Batch union all primitives
     # -------------------------------------------------------------------------
     t0 = time.perf_counter()
-    united_lattice = manifold3d.Manifold.compose(manifold_objects)
+    if len(manifold_objects) == 1:
+        united_lattice = manifold_objects[0]
+    else:
+        try:
+            united_lattice = manifold3d.Manifold.batch_boolean(
+                manifold_objects, manifold3d.OpType.Add
+            )
+        except Exception:
+            united_lattice = manifold3d.Manifold.compose(manifold_objects)
     t_union = time.perf_counter() - t0
 
     # -------------------------------------------------------------------------

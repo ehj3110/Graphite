@@ -11,6 +11,7 @@ STL health diagnostics and repair: PyMeshLab gentle triage + Poisson fail-safe; 
 ## Public entrypoints
 
 - `repair_stl`, `run_gentle_triage`, `run_poisson_reconstruction`
+- `repair_mesh_experimental`, `repair_stl_experimental` (Progressive Multi-Tier: Gentle -> PyMeshFix -> Manifold3D exact CSG -> Poisson)
 - `get_pymeshlab_health`, `print_health_report`
 - `repair_stl_with_bmesh` (Blender)
 

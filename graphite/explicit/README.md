@@ -24,6 +24,7 @@ From package `__init__.py` (lazy wrappers):
 
 - `generate_a15_conformal_lattice`, `generate_conformal_scaffold`, `generate_conformal_lattice`
 - SC Nodal Conformation & Universal Dual: `generate_nodal_conformation`, `deform_outside_nodes`, `weld_combined_lattice`, `build_planar_slicing_surface_dual`, `PlanarSweepConfig`
+- `generate_surface_lattice`: 2D planar, cylindrical, and surface-conformal lattices
 - `generate_interlinked_lattice`, `InterlinkedConfig`
 - `generate_topology`, `generate_hex_topology`, `generate_geometry`, `solve_sizing`, `repair_cad_mesh`
 - `generate_tetrachiral_cell`, `generate_trichiral_cell`
@@ -31,6 +32,7 @@ From package `__init__.py` (lazy wrappers):
 
 Important modules (import directly when needed):
 
+- 2D Surface Lattices: `surface_lattice/` (`pipeline`, `unit_cells`, `grading`, `sweepers`, `cad_fixtures`, `face_operators`)
 - Interlinked: `interlinked/` (`particle`, `cell`, `cells`, `seeding`, `boundary`, `clearance`, `writer_3mf`, `generator`, `patterns`, `pams`, `importer`, `nasa_hexagon`)
 - Custom cells / rules: `custom_rules` (register dynamic hex trusses from canonical skeletons into explicit core)
 - Tet: `a15_conformal`, `a15_kagome`, `proven_topologies`, `rules/`

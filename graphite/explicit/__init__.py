@@ -118,6 +118,25 @@ def PlanarSweepConfig(*args, **kwargs):
     return _impl(*args, **kwargs)
 
 
+def generate_sc_conformation_stages(*args, **kwargs):
+    """Generate 3 diagnostic SC conformation stages (untrimmed, trimmed, conformed) + grid cage."""
+    from .nodal_conformation import generate_sc_conformation_stages as _impl
+    return _impl(*args, **kwargs)
+
+
+def render_sc_conformation_stages_figure(*args, **kwargs):
+    """Render 4-panel visual comparison figure for SC conformation stages."""
+    from .nodal_conformation import render_sc_conformation_stages_figure as _impl
+    return _impl(*args, **kwargs)
+
+
+def calculate_sc_strut_radius_for_solid_fraction(*args, **kwargs):
+    """Calculate strut radius/diameter for target solid fraction across SC lattice."""
+    from .nodal_conformation import calculate_sc_strut_radius_for_solid_fraction as _impl
+    return _impl(*args, **kwargs)
+
+
+
 
 # ---------------------------------------------------------------------------
 # Topology, Geometry, Sizing, Repair - unchanged
@@ -224,6 +243,9 @@ __all__ = [
     "weld_combined_lattice",
     "build_planar_slicing_surface_dual",
     "PlanarSweepConfig",
+    "generate_sc_conformation_stages",
+    "render_sc_conformation_stages_figure",
+    "calculate_sc_strut_radius_for_solid_fraction",
     # Lofted explicit hex
     "generate_lofted_hex_scaffold",
     "synthesize_lofted_lattice",

@@ -119,6 +119,83 @@ class TestJ4OctCell:
         np.testing.assert_allclose(parts_odd_y[0].rotation, expected_Ry, atol=1e-8)
 
 
+
+class TestJ4RingCell:
+    def test_registry_lookup(self):
+        cls1 = InterlinkedRegistry.get("j4ring")
+        cls2 = InterlinkedRegistry.get("j-4-ring")
+        cls3 = InterlinkedRegistry.get("j4")
+        assert cls1 is cls2 and cls2 is cls3
+        from graphite.explicit.interlinked import J4RingCell
+        assert issubclass(cls1, J4RingCell)
+
+    def test_protocol_attributes(self):
+        from graphite.explicit.interlinked import J4RingCell
+        cell = J4RingCell()
+        assert isinstance(cell, InterlinkedCell)
+        assert cell.name == "J-4-RING"
+        assert cell.family == "pam_rings"
+        assert cell.parent_network == "dia"
+        assert cell.coordination_number == 4
+        assert len(cell.neighbor_catenation_offsets) == 4
+        assert len(cell.basis_particles) == 6
+
+    def test_instantiate_site_and_clearance(self):
+        from graphite.explicit.interlinked import J4RingCell, measure_ring_lattice_clearance
+        cell = J4RingCell()
+        a = 14.0
+        parts = cell.instantiate_site((0, 0, 0), np.zeros(3), a, id_start=0)
+        assert len(parts) == 6
+        # Intra-cluster clearance must be strictly positive
+        from graphite.explicit.interlinked.patterns import Ring
+        rings = [
+            Ring(
+                center=p.center,
+                normal=p.rotation @ [0.0, 0.0, 1.0],
+                radius=p.geometry.bounding_radius,
+                wire_radius=0.35,
+                nodes=p.global_nodes(),
+                struts=p.struts,
+                cell_index=(0,),
+            )
+            for p in parts
+        ]
+        meas = measure_ring_lattice_clearance(rings, min_clearance=0.10)
+        assert meas["global_min_clearance"] > 0.40
+        assert len(meas["violations"]) == 0
+
+    def test_j4_orientation_and_generator(self):
+        from graphite.explicit.interlinked import (
+            resolve_orientation_matrix,
+            generate_interlinked_lattice,
+            InterlinkedConfig,
+        )
+        # Test orientation matrix helper
+        R_111 = resolve_orientation_matrix("111")
+        assert np.allclose(R_111 @ R_111.T, np.eye(3))
+        assert np.allclose(R_111 @ (np.ones(3) / np.sqrt(3.0)), [0.0, 0.0, 1.0])
+
+        R_euler = resolve_orientation_matrix(euler_angles_deg=[45.0, 30.0, 60.0])
+        assert np.allclose(R_euler @ R_euler.T, np.eye(3))
+
+        # Test generation with (111) orientation
+        cfg = InterlinkedConfig(
+            cell="j4ring",
+            seeding_type="diamond",
+            orientation="111",
+            pitch=14.0,
+            wire_radius=0.35,
+            grid_size=(1, 1, 1),
+            min_clearance=0.10,
+        )
+        res = generate_interlinked_lattice(cfg, check_clearance=True)
+        assert res.num_rings == 48  # 8 sites * 6 rings
+        assert res.clearance_valid
+        assert res.min_clearance > 0.40
+        assert "ring_clearance" in res.metadata
+        assert res.metadata["ring_clearance"]["global_min_clearance"] > 0.40
+
+
 class TestEuropean4in1Cell:
     def test_registry_lookup(self):
         cls1 = InterlinkedRegistry.get("european_4in1")
@@ -325,3 +402,145 @@ class TestCADAutoRepair:
         repaired = load_cad_mesh("file", file_path=bad_stl)
         assert repaired.is_watertight
         assert len(repaired.vertices) == 8
+
+
+class TestNewPAMCells:
+    def test_d4_cube_registry_and_clearance(self):
+        from graphite.explicit.interlinked import D4CubeCell, InterlinkedRegistry
+        cls = InterlinkedRegistry.get("d4cube")
+        assert issubclass(cls, D4CubeCell)
+        cell = D4CubeCell()
+        assert cell.name == "D-4-CUBE"
+        assert cell.coordination_number == 4
+        assert cell.parent_network == "dia"
+        assert cell.forward_clearance(14.0, 0.70) > 0.40
+        assert cell.resolve_pitch(0.10, 0.70) > 0.0
+
+        # Instantiate single site
+        parts = cell.instantiate_site((0, 0, 0), np.zeros(3), 14.0)
+        assert len(parts) == 2  # local A and B
+        assert parts[0].geometry.geometry_type == "CUBE"
+        assert len(parts[0].geometry.nodes) == 8
+        assert len(parts[0].geometry.struts) == 12
+
+    def test_d4_ct_registry_and_parity(self):
+        from graphite.explicit.interlinked import D4CTCell, InterlinkedRegistry
+        cls = InterlinkedRegistry.get("d4ct")
+        assert issubclass(cls, D4CTCell)
+        cell = D4CTCell()
+        assert cell.name == "D-4-CT"
+        assert cell.coordination_number == 4
+        parts = cell.instantiate_site((0, 0, 0), np.zeros(3), 14.0)
+        assert len(parts) == 2
+        # A and B must have inverted geometries
+        pA, pB = parts[0], parts[1]
+        assert len(pA.geometry.nodes) == 8
+        assert len(pA.geometry.struts) == 18
+        # Point inversion: B nodes are -A nodes
+        np.testing.assert_allclose(pB.geometry.nodes, -pA.geometry.nodes)
+
+    def test_d4_ico_registry_and_struts(self):
+        from graphite.explicit.interlinked import D4IcoCell, InterlinkedRegistry
+        cls = InterlinkedRegistry.get("d4ico")
+        assert issubclass(cls, D4IcoCell)
+        cell = D4IcoCell()
+        assert cell.name == "D-4-ICO"
+        assert cell.coordination_number == 4
+        parts = cell.instantiate_site((0, 0, 0), np.zeros(3), 14.0)
+        assert len(parts) == 2
+        assert len(parts[0].geometry.nodes) == 12
+        assert len(parts[0].geometry.struts) == 30
+
+    def test_t6_ring_and_hex(self):
+        from graphite.explicit.interlinked import T6RingCell, T6HexCell, InterlinkedRegistry
+        cls_ring = InterlinkedRegistry.get("t6ring")
+        assert issubclass(cls_ring, T6RingCell)
+        cell_ring = T6RingCell()
+        assert cell_ring.name == "T-6-RING"
+        assert cell_ring.coordination_number == 6
+        assert len(cell_ring.basis_particles) == 4
+        parts_ring = cell_ring.instantiate_site((0, 0, 0), np.zeros(3), 12.0)
+        assert len(parts_ring) == 4
+
+        cls_hex = InterlinkedRegistry.get("t6hex")
+        assert issubclass(cls_hex, T6HexCell)
+        cell_hex = T6HexCell()
+        assert cell_hex.name == "T-6-HEX"
+        assert cell_hex.coordination_number == 6
+        parts_hex = cell_hex.instantiate_site((0, 0, 0), np.zeros(3), 12.0)
+        assert len(parts_hex) == 4
+        assert len(parts_hex[0].geometry.nodes) == 6
+        assert len(parts_hex[0].geometry.struts) == 6
+
+    def test_c6co_and_b8co(self):
+        from graphite.explicit.interlinked import C6COCell, B8COCell, InterlinkedRegistry
+        cls_c6 = InterlinkedRegistry.get("c6co")
+        assert issubclass(cls_c6, C6COCell)
+        cell_c6 = C6COCell()
+        assert cell_c6.name == "C-6-CO"
+        assert cell_c6.coordination_number == 6
+
+        # Even parity: identity
+        parts_even = cell_c6.instantiate_site((0, 0, 0), np.zeros(3), 10.0)
+        np.testing.assert_allclose(parts_even[0].rotation, np.eye(3))
+
+        # Odd parity: twisted
+        parts_odd = cell_c6.instantiate_site((1, 0, 0), np.array([10.0, 0, 0]), 10.0)
+        assert not np.allclose(parts_odd[0].rotation, np.eye(3))
+
+        cls_b8 = InterlinkedRegistry.get("b8co")
+        assert issubclass(cls_b8, B8COCell)
+        cell_b8 = B8COCell()
+        assert cell_b8.name == "B-8-CO"
+        assert cell_b8.coordination_number == 8
+        parts_b8 = cell_b8.instantiate_site((0, 0, 0), np.zeros(3), 12.0)
+        assert len(parts_b8) == 2  # Corner A + Body-center B
+        assert len(parts_b8[0].geometry.nodes) == 12
+        assert len(parts_b8[0].geometry.struts) == 24
+
+
+class TestTopologicalCatenationQualityGate:
+    """Automated quality gate verifying that registered PAM cells produce true catenated lattices."""
+
+    def test_b8co_topological_linking(self):
+        from graphite.explicit.interlinked import InterlinkedRegistry, InterlinkedConfig, generate_interlinked_lattice
+        from graphite.explicit.interlinked.catenation import audit_lattice_catenation
+
+        cell = InterlinkedRegistry.get("b-8-co")()
+        cfg = InterlinkedConfig(cell=cell, pitch=16.0, wire_radius=0.35, grid_size=(2, 2, 2), seeding_type="bcc")
+        res = generate_interlinked_lattice(cfg, check_clearance=False)
+        report = audit_lattice_catenation(res.particles, wire_radius=0.35)
+
+        assert report.total_links >= 24, f"B-8-CO must have >= 24 links across 2x2x2 block, got {report.total_links}"
+        assert report.num_isolated_particles == 0, "B-8-CO must have 0 isolated unlinked particles"
+        assert not report.has_collisions, "B-8-CO must have zero strut collisions"
+        assert report.min_clearance > 0.10, f"B-8-CO clearance must be positive, got {report.min_clearance}"
+
+    def test_j4oct_topological_linking(self):
+        from graphite.explicit.interlinked import InterlinkedRegistry, InterlinkedConfig, generate_interlinked_lattice
+        from graphite.explicit.interlinked.catenation import audit_lattice_catenation
+
+        cell = InterlinkedRegistry.get("j-4-oct")()
+        cfg = InterlinkedConfig(cell=cell, pitch=10.0, wire_radius=0.35, grid_size=(2, 1, 1))
+        res = generate_interlinked_lattice(cfg, check_clearance=False)
+        report = audit_lattice_catenation(res.particles, wire_radius=0.35)
+
+        assert report.total_links == 1, f"J-4-OCT 2x1 grid must have 1 link, got {report.total_links}"
+        assert report.num_isolated_particles == 0, "J-4-OCT must have 0 isolated particles"
+        assert not report.has_collisions, "J-4-OCT must have zero collisions"
+        assert report.min_clearance > 0.30, f"J-4-OCT clearance must be >= 0.30 mm, got {report.min_clearance}"
+
+    def test_c6tt_topological_linking(self):
+        from graphite.explicit.interlinked import InterlinkedRegistry, InterlinkedConfig, generate_interlinked_lattice
+        from graphite.explicit.interlinked.validator import check_envelope_penetration_and_catenation
+
+        cell = InterlinkedRegistry.get("c6tt")()
+        cfg = InterlinkedConfig(cell=cell, pitch=12.0, wire_radius=0.35, grid_size=(2, 2, 2))
+        res = generate_interlinked_lattice(cfg, check_clearance=False)
+        report = check_envelope_penetration_and_catenation(res.particles)
+
+        assert report.total_interlinks == 12, f"C-6-TT 2x2x2 must have 12 links, got {report.total_interlinks}"
+        assert report.all_interlinked
+        assert report.num_hanging == 0
+
+

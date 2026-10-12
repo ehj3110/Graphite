@@ -21,6 +21,7 @@ from graphite.explicit.interlinked import (
     seed_staggered_lattice,
     seed_hexagonal_lattice,
     seed_diamond_lattice,
+    seed_orthogonal_lattice,
     seed_cylindrical_wrap,
     seed_spherical_shell,
     instantiate_lattice_on_sites,
@@ -86,6 +87,35 @@ class TestTranslationalSeeders:
         assert len(centers) == 8
         assert sublattices.count("A") == 4
         assert sublattices.count("B") == 4
+
+    def test_prune_unbonded_dia_1x1x1(self):
+        """Verify prune_unbonded=True removes zero-bond boundary sites and leaves a single connected component."""
+        # Unpruned on {100} has 18 sites (includes opposing boundary faces)
+        c_raw, _, _, _ = seed_orthogonal_lattice((1, 1, 1), pitch=10.0, network="dia", plane="100", prune_unbonded=False)
+        assert len(c_raw) == 18
+
+        # Pruned removes the 4 sites with zero intra-lattice bonds
+        c_pruned, _, _, _ = seed_orthogonal_lattice((1, 1, 1), pitch=10.0, network="dia", plane="100", prune_unbonded=True)
+        assert len(c_pruned) == 14
+
+        # Verify no surviving site has degree 0 in the diamond bond network
+        from scipy.spatial import cKDTree
+        from scipy.sparse import csgraph, lil_matrix
+        target_d = 10.0 * np.sqrt(3.0) / 4.0
+        tol = 1e-2
+        tree = cKDTree(c_pruned)
+        pairs = tree.query_pairs(r=target_d + tol)
+        valid_pairs = [(i, j) for (i, j) in pairs if abs(np.linalg.norm(c_pruned[i] - c_pruned[j]) - target_d) <= tol]
+        degrees = [sum(1 for i, j in valid_pairs if i == k or j == k) for k in range(len(c_pruned))]
+        assert all(deg > 0 for deg in degrees)
+
+        # Verify single connected component
+        mat = lil_matrix((len(c_pruned), len(c_pruned)), dtype=bool)
+        for i, j in valid_pairs:
+            mat[i, j] = True
+            mat[j, i] = True
+        n_comps, _ = csgraph.connected_components(mat, directed=False)
+        assert n_comps == 1
 
 
 class TestAnalyticalPrimitives:

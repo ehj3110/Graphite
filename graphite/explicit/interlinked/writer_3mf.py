@@ -19,7 +19,11 @@ import trimesh
 import manifold3d as m3d
 
 from .particle import ParticleGeometry, InterlinkedParticle
-from graphite.explicit.geometry_module import generate_geometry, _manifold_to_trimesh
+from graphite.explicit.geometry_module import (
+    generate_geometry,
+    build_clean_miter_truss,
+    _manifold_to_trimesh,
+)
 
 
 _CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -78,28 +82,102 @@ def solidify_particle_prototype(
     if len(nodes) == 0 or len(struts) == 0:
         raise ValueError(f"Cannot solidify empty particle geometry {geometry}")
 
-    mesh = generate_geometry(
+    mesh = build_clean_miter_truss(
         nodes=nodes,
         struts=struts,
         strut_radius=r,
-        add_spheres=False,
         circular_segments=circular_segments,
-        crop_to_boundary=False,
     )
     return mesh
 
 
 def format_3mf_transform(transform_4x4: np.ndarray) -> str:
     """
-    Format a 4x4 homogeneous transformation matrix into the 12-value 3MF affine string:
-        "m00 m01 m02 m10 m11 m12 m20 m21 m22 m03 m13 m23"
-    where [m00..m22] is rotation and [m03, m13, m23] is translation.
+    Format a 4x4 homogeneous transformation matrix into the 12-value 3MF affine string.
+    According to the 3MF Core Specification (Section 4.1 "Matrix"):
+    The transform attribute is a space-delimited string of 12 numbers ordered by column vectors:
+        m00 m10 m20  m01 m11 m21  m02 m12 m22  m03 m13 m23
+    where columns 0..2 are the basis vectors and column 3 is translation.
     """
     T = np.asarray(transform_4x4, dtype=np.float64)
-    m00, m01, m02, m03 = T[0, 0], T[0, 1], T[0, 2], T[0, 3]
-    m10, m11, m12, m13 = T[1, 0], T[1, 1], T[1, 2], T[1, 3]
-    m20, m21, m22, m23 = T[2, 0], T[2, 1], T[2, 2], T[2, 3]
-    return f"{m00:.8f} {m01:.8f} {m02:.8f} {m10:.8f} {m11:.8f} {m12:.8f} {m20:.8f} {m21:.8f} {m22:.8f} {m03:.8f} {m13:.8f} {m23:.8f}"
+    cols = [f"{T[i, j]:.8f}" for j in range(4) for i in range(3)]
+    return " ".join(cols)
+
+
+DEFAULT_STATUS_COLORS: dict[str, str] = {
+    "zone_0": "#38BDF8FF",      # Sky blue (Zone A)
+    "zone_a": "#38BDF8FF",
+    "zone_1": "#F43F5EFF",      # Rose / Pink-Red (Zone B)
+    "zone_b": "#F43F5EFF",
+    "zone_2": "#10B981FF",      # Emerald (Zone C)
+    "zone_c": "#10B981FF",
+    "zone_3": "#8B5CF6FF",      # Violet (Zone D)
+    "colliding": "#EF4444FF",   # Bright Red
+    "collision": "#EF4444FF",
+    "entangled": "#F59E0BFF",   # Amber / Orange
+    "hanging": "#A855F7FF",     # Purple
+    "orphaned": "#FACC15FF",    # Yellow (boundary orphan)
+    "*_orphaned": "#FACC15FF",
+    "detached": "#FB923CFF",    # Orange (disconnected from largest component)
+    "*_detached": "#FB923CFF",
+    "linked": "#38BDF8FF",      # Default linked
+    "frame": "#64748BFF",       # Slate boundary frame
+    "default": "#94A3B8FF",     # Neutral slate
+}
+
+
+def _normalize_hex(c_str: str) -> str:
+    """Normalize hex color string to #RRGGBBAA format."""
+    c = c_str.strip().upper()
+    if not c.startswith("#"):
+        c = "#" + c
+    if len(c) == 7:  # #RRGGBB -> #RRGGBBFF
+        c = c + "FF"
+    return c
+
+
+def resolve_particle_color(
+    particle: InterlinkedParticle,
+    custom_colors: dict[str, str] | None = None,
+) -> str:
+    """Resolve an RGBA hex string (#RRGGBBAA) for a particle based on its status or metadata."""
+    palette = dict(DEFAULT_STATUS_COLORS)
+    if custom_colors:
+        palette.update({k.lower(): v for k, v in custom_colors.items()})
+
+    raw_col = particle.metadata.get("color")
+    if raw_col and isinstance(raw_col, str):
+        return _normalize_hex(raw_col)
+
+    status = str(particle.metadata.get("status", "")).lower().strip()
+    if status in palette:
+        return _normalize_hex(palette[status])
+
+    # Suffix pattern matching for Zone_k_orphaned, Zone_k_detached, Zone_k_boundary_linked
+    if status.endswith("_orphaned") or status == "orphaned":
+        for k in ("*_orphaned", "orphaned"):
+            if k in palette:
+                return _normalize_hex(palette[k])
+
+    if status.endswith("_detached") or status == "detached":
+        for k in ("*_detached", "detached"):
+            if k in palette:
+                return _normalize_hex(palette[k])
+
+    if (status.endswith("_boundary_linked") or status == "boundary_linked") and "boundary_linked" in palette:
+        return _normalize_hex(palette["boundary_linked"])
+
+    zone_idx = particle.metadata.get("zone_index")
+    if zone_idx is not None:
+        z_key = f"zone_{zone_idx}".lower()
+        if z_key in palette:
+            return _normalize_hex(palette[z_key])
+
+    zone_str = str(particle.metadata.get("zone", "")).lower().strip()
+    if zone_str in palette:
+        return _normalize_hex(palette[zone_str])
+
+    return _normalize_hex(palette.get("default", "#94A3B8FF"))
 
 
 def export_interlinked_3mf(
@@ -110,6 +188,8 @@ def export_interlinked_3mf(
     prototype_meshes: dict[str, trimesh.Trimesh] | None = None,
     circular_segments: int = 24,
     num_thickness_buckets: int = 16,
+    color_by_status: bool = True,
+    status_colors: dict[str, str] | None = None,
 ) -> Path:
     """
     Export an assembly of InterlinkedParticle instances as a true instanced 3MF package.
@@ -118,6 +198,7 @@ def export_interlinked_3mf(
         - Unique particle meshes are stored exactly ONCE in the <resources> block.
         - Placements are lightweight <item> transform references in the <build> block.
         - Yields 90% to 99% reduction in file size compared to raw monolithic STLs.
+        - Supports per-object status color coding (Zone A/B, Colliding, Entangled, Hanging).
         - Fully compatible with slicers (PrusaSlicer, Bambu Studio, Cura, Magics).
 
     Args:
@@ -127,6 +208,9 @@ def export_interlinked_3mf(
         solid_frames: Optional solid boundary frames (e.g. from Policy C).
         prototype_meshes: Optional pre-solidified prototype cache keyed by prototype identifier.
         circular_segments: Cross-sectional circle resolution.
+        num_thickness_buckets: Prototype instancing quantization buckets.
+        color_by_status: If True, assign color groups by particle status (Zone, Colliding, etc.).
+        status_colors: Optional override dictionary mapping status names to RGBA hex strings.
 
     Returns:
         Path to the saved .3mf file.
@@ -138,8 +222,8 @@ def export_interlinked_3mf(
         raise ValueError("Cannot export empty particle list to 3MF")
 
     proto_cache: dict[str, trimesh.Trimesh] = dict(prototype_meshes or {})
-    # Map prototype_key -> (3mf_object_id, trimesh_mesh)
-    prototype_registry: dict[str, tuple[int, trimesh.Trimesh]] = {}
+    # Map obj_key -> (3mf_object_id, trimesh_mesh, pid, pindex)
+    object_registry: dict[str, tuple[int, trimesh.Trimesh, int | None, int | None]] = {}
     next_obj_id = 1
 
     # 1. Inspect per-particle wire radii and establish bucket centers
@@ -159,61 +243,107 @@ def export_interlinked_3mf(
         idx = int(np.argmin(np.abs(bucket_centers - r_val)))
         return float(bucket_centers[idx])
 
-    # 2. Group particles by prototype key (including quantized radius)
+    # 2. Determine color palette index assignment
+    colorgroup_colors: list[str] = []
+    colorgroup_id = 1
+    next_obj_id = 2  # object IDs start at 2 so colorgroup can use ID 1
+
+    if color_by_status:
+        seen_colors: dict[str, int] = {}
+        for p in particles:
+            c_hex = resolve_particle_color(p, status_colors)
+            if c_hex not in seen_colors:
+                seen_colors[c_hex] = len(colorgroup_colors)
+                colorgroup_colors.append(c_hex)
+
+        if solid_frames is not None:
+            f_palette = dict(DEFAULT_STATUS_COLORS)
+            if status_colors:
+                f_palette.update({k.lower(): v for k, v in status_colors.items()})
+            f_col = f_palette.get("frame", "#64748BFF")
+            if f_col not in seen_colors:
+                seen_colors[f_col] = len(colorgroup_colors)
+                colorgroup_colors.append(f_col)
+
     def _proto_key(p: InterlinkedParticle, r_q: float) -> str:
         g = p.geometry
         return f"{g.geometry_type}_{len(g.nodes)}_{len(g.struts)}_{p.sublattice_id}_r{r_q:.4f}"
 
-    particle_items: list[tuple[int, str]] = []  # (object_id, transform_str)
+    particle_items: list[tuple[int, str, int | None, int | None]] = []  # (object_id, transform_str, pid, pindex)
 
     for p in particles:
         p_r = p.effective_wire_radius(fallback=strut_radius)
         r_bucket = _quantized_radius(p_r)
-        key = _proto_key(p, r_bucket)
+        geom_key = _proto_key(p, r_bucket)
 
-        if key not in prototype_registry:
-            # Solidify prototype once per unique geometry + radius bucket
-            if key in proto_cache:
-                m = proto_cache[key]
-            else:
-                m = solidify_particle_prototype(
-                    geometry=p.geometry,
-                    strut_radius=r_bucket,
-                    circular_segments=circular_segments,
-                )
-                proto_cache[key] = m
+        if geom_key not in proto_cache:
+            m = solidify_particle_prototype(
+                geometry=p.geometry,
+                strut_radius=r_bucket,
+                circular_segments=circular_segments,
+            )
+            proto_cache[geom_key] = m
+        else:
+            m = proto_cache[geom_key]
 
-            prototype_registry[key] = (next_obj_id, m)
+        if color_by_status and colorgroup_colors:
+            c_hex = resolve_particle_color(p, status_colors)
+            p_idx = colorgroup_colors.index(c_hex)
+            p_pid = colorgroup_id
+            obj_key = f"{geom_key}_c{p_idx}"
+        else:
+            p_idx = None
+            p_pid = None
+            obj_key = geom_key
+
+        if obj_key not in object_registry:
+            object_registry[obj_key] = (next_obj_id, m, p_pid, p_idx)
             obj_id = next_obj_id
             next_obj_id += 1
         else:
-            obj_id = prototype_registry[key][0]
+            obj_id = object_registry[obj_key][0]
 
         # Format 3MF item transform
         t_str = format_3mf_transform(p.transform)
-        particle_items.append((obj_id, t_str))
+        particle_items.append((obj_id, t_str, p_pid, p_idx))
 
-    # 2. Handle optional solid frames (Policy C)
-    frame_items: list[int] = []
+    # 3. Handle optional solid frames (Policy C)
+    frame_items: list[tuple[int, int | None, int | None]] = []
     if solid_frames is not None:
         if isinstance(solid_frames, trimesh.Trimesh):
             frames_list = [solid_frames]
         else:
             frames_list = list(solid_frames)
 
-        for f_idx, f_mesh in enumerate(frames_list):
-            f_key = f"__solid_frame_{f_idx}__"
-            prototype_registry[f_key] = (next_obj_id, f_mesh)
-            frame_items.append(next_obj_id)
+        f_pid = colorgroup_id if color_by_status and colorgroup_colors else None
+        f_idx = colorgroup_colors.index(f_col) if (color_by_status and colorgroup_colors) else None
+
+        for f_idx_enum, f_mesh in enumerate(frames_list):
+            f_key = f"__solid_frame_{f_idx_enum}__"
+            object_registry[f_key] = (next_obj_id, f_mesh, f_pid, f_idx)
+            frame_items.append((next_obj_id, f_pid, f_idx))
             next_obj_id += 1
 
-    # 3. Construct 3MF XML Resources (<resources>)
+    # 4. Construct 3MF XML Resources (<resources>)
     resources_xml_parts: list[str] = ["  <resources>"]
-    for key, (obj_id, mesh) in prototype_registry.items():
+    if color_by_status and colorgroup_colors:
+        c_lines = [f'      <m:color color="{c}"/>' for c in colorgroup_colors]
+        resources_xml_parts.append(
+            f'    <m:colorgroup id="{colorgroup_id}">\n'
+            + "\n".join(c_lines)
+            + "\n    </m:colorgroup>"
+        )
+
+    for key, (obj_id, mesh, p_pid, p_idx) in object_registry.items():
         v_lines = [f'          <vertex x="{v[0]:.6f}" y="{v[1]:.6f}" z="{v[2]:.6f}"/>' for v in mesh.vertices]
         f_lines = [f'          <triangle v1="{f[0]}" v2="{f[1]}" v3="{f[2]}"/>' for f in mesh.faces]
 
-        obj_xml = f"""    <object id="{obj_id}" type="model" name="{key}">
+        if color_by_status and p_pid is not None and p_idx is not None:
+            prop_attrs = f' pid="{p_pid}" pindex="{p_idx}"'
+        else:
+            prop_attrs = ""
+
+        obj_xml = f"""    <object id="{obj_id}" type="model" name="{key}"{prop_attrs}>
       <mesh>
         <vertices>
 {chr(10).join(v_lines)}
@@ -228,26 +358,32 @@ def export_interlinked_3mf(
     resources_xml_parts.append("  </resources>")
     resources_xml = "\n".join(resources_xml_parts)
 
-    # 4. Construct 3MF Build (<build>)
+    # 5. Construct 3MF Build (<build>)
     build_xml_parts: list[str] = ["  <build>"]
-    for obj_id, t_str in particle_items:
-        build_xml_parts.append(f'    <item objectid="{obj_id}" transform="{t_str}"/>')
+    for obj_id, t_str, p_pid, p_idx in particle_items:
+        if color_by_status and p_pid is not None and p_idx is not None:
+            build_xml_parts.append(f'    <item objectid="{obj_id}" transform="{t_str}" pid="{p_pid}" pindex="{p_idx}"/>')
+        else:
+            build_xml_parts.append(f'    <item objectid="{obj_id}" transform="{t_str}"/>')
 
-    for frame_obj_id in frame_items:
-        # Frames are already in world coordinates
-        build_xml_parts.append(f'    <item objectid="{frame_obj_id}"/>')
+    for frame_obj_id, f_pid, f_idx in frame_items:
+        if color_by_status and f_pid is not None and f_idx is not None:
+            build_xml_parts.append(f'    <item objectid="{frame_obj_id}" pid="{f_pid}" pindex="{f_idx}"/>')
+        else:
+            build_xml_parts.append(f'    <item objectid="{frame_obj_id}"/>')
 
     build_xml_parts.append("  </build>")
     build_xml = "\n".join(build_xml_parts)
 
-    # 5. Assemble Full 3D Model XML Document
+    # 6. Assemble Full 3D Model XML Document
+    ns_mat = ' xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02"' if (color_by_status and colorgroup_colors) else ""
     model_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"{ns_mat}>
 {resources_xml}
 {build_xml}
 </model>"""
 
-    # 6. Package into OPC ZIP Archive
+    # 7. Package into OPC ZIP Archive
     with zipfile.ZipFile(out_file, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
         z.writestr("_rels/.rels", _RELS_XML)

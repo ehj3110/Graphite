@@ -105,6 +105,92 @@ class TestWriter3MF:
         scene = trimesh.load(str(out_3mf), file_type="3mf")
         assert scene is not None
 
+    def test_export_interlinked_3mf_status_colors(self, tmp_path):
+        """Verify 3MF package contains m:colorgroup resources and property indices."""
+        import zipfile
+        cell = C6TTCell()
+        centers, frames, indices = seed_cartesian_lattice(repeats=(2, 1, 1), pitch=10.0)
+        particles = instantiate_lattice_on_sites(cell, centers, frames, indices, cell_pitch=10.0)
+        assert len(particles) == 2
+        particles[0].metadata["status"] = "Zone_0"
+        particles[1].metadata["status"] = "colliding"
+
+        out_3mf = tmp_path / "colored_lattice.3mf"
+        export_interlinked_3mf(
+            particles=particles,
+            strut_radius=0.4,
+            output_path=out_3mf,
+            color_by_status=True,
+            circular_segments=16,
+        )
+        assert out_3mf.exists()
+
+        # Check XML contents directly inside the zip archive
+        with zipfile.ZipFile(out_3mf, "r") as zf:
+            model_xml = zf.read("3D/3dmodel.model").decode("utf-8")
+            assert "m:colorgroup" in model_xml
+            assert "38BDF8FF" in model_xml
+            assert "EF4444FF" in model_xml
+            assert 'pid="1"' in model_xml
+            assert 'pindex="0"' in model_xml
+            assert 'pindex="1"' in model_xml
+
+    def test_export_interlinked_3mf_orphaned_and_detached_colors(self, tmp_path):
+        """Verify 3MF colorgroup assigns #FACC15FF to orphaned and #FB923CFF to detached particles."""
+        import zipfile
+        from graphite.explicit.interlinked import resolve_particle_color
+
+        cell = C6TTCell()
+        centers, frames, indices = seed_cartesian_lattice(repeats=(3, 1, 1), pitch=10.0)
+        particles = instantiate_lattice_on_sites(cell, centers, frames, indices, cell_pitch=10.0)
+        assert len(particles) == 3
+
+        particles[0].metadata["status"] = "Zone_0"
+        particles[1].metadata["status"] = "Zone_1_orphaned"
+        particles[2].metadata["status"] = "Zone_0_detached"
+
+        # Verify resolve_particle_color resolves exact status colors
+        assert resolve_particle_color(particles[0]) == "#38BDF8FF"
+        assert resolve_particle_color(particles[1]) == "#FACC15FF"
+        assert resolve_particle_color(particles[2]) == "#FB923CFF"
+
+        out_3mf = tmp_path / "orphan_detached_lattice.3mf"
+        export_interlinked_3mf(
+            particles=particles,
+            strut_radius=0.4,
+            output_path=out_3mf,
+            color_by_status=True,
+            circular_segments=16,
+        )
+        assert out_3mf.exists()
+
+        with zipfile.ZipFile(out_3mf, "r") as zf:
+            model_xml = zf.read("3D/3dmodel.model").decode("utf-8")
+            assert "m:colorgroup" in model_xml
+            assert "38BDF8FF" in model_xml  # Zone 0 sky blue
+            assert "FACC15FF" in model_xml  # orphaned yellow
+            assert "FB923CFF" in model_xml  # detached orange
+
+    def test_resolve_particle_color_custom_overrides(self):
+        """Verify pattern matching for custom colors (*_orphaned, *_detached)."""
+        from graphite.explicit.interlinked import resolve_particle_color
+
+        cell = C6TTCell()
+        centers, frames, indices = seed_cartesian_lattice(repeats=(2, 1, 1), pitch=10.0)
+        particles = instantiate_lattice_on_sites(cell, centers, frames, indices, cell_pitch=10.0)
+
+        particles[0].metadata["status"] = "Zone_1_orphaned"
+        particles[1].metadata["status"] = "Zone_2_detached"
+
+        # Wildcard custom overrides
+        custom = {"*_orphaned": "#123456", "*_detached": "#654321"}
+        assert resolve_particle_color(particles[0], custom) == "#123456FF"
+        assert resolve_particle_color(particles[1], custom) == "#654321FF"
+
+        # Explicit name override takes precedence
+        explicit_custom = {"Zone_1_orphaned": "#ABCDEF"}
+        assert resolve_particle_color(particles[0], explicit_custom) == "#ABCDEFFF"
+
     def test_3mf_file_size_compression(self, tmp_path):
         """Instanced 3MF should be dramatically smaller than raw monolithic STL for large arrays."""
         cell = C6TTCell()

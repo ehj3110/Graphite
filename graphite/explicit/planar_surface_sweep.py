@@ -53,13 +53,21 @@ class PlanarSweepConfig:
     """Endpoint elongation multiplier (x dual_width) along the tangent to ensure full volume
     overlap at multi-strut vertex junctions before boolean union."""
 
-    valley_prune_sdf: float = 0.5
-    """Midpoint signed distance (mm) above which non-volume dual struts bridging exterior empty
-    valleys / concave gaps are pruned."""
+    valley_prune_sdf: float | None = None
+    """Optional midpoint signed distance (mm) threshold above which non-volume dual struts bridging
+    exterior empty valleys / concave gaps are pruned. None disables valley pruning (recommended)."""
 
-    boundary_promote_eps: float = 0.1
+    boundary_promote_eps: float = 1.0
     """Distance threshold (mm) from CAD surface for promoting boundary volume struts into the
     surface dual edge set, sealing rim and corner gaps."""
+
+    enable_junction_caps: bool = True
+    """Whether to generate conformal nodal junction caps at all active dual vertices prior to
+    CAD double boolean trimming, preventing severed stubs and notches across sharp crests."""
+
+    junction_cap_factor: float = 0.6
+    """Multiplier on dual_width for junction cap sphere radius (e.g. 0.6 x 1.6 mm = 0.96 mm)."""
+
 
 
 def generate_planar_sweep_strut_manifold(
@@ -258,6 +266,10 @@ def build_planar_slicing_surface_dual(
         _, d_vol, _ = trimesh.proximity.closest_point(cad, vol_pts_def)
         for va, vb in v_struts:
             if d_vol[va] < config.boundary_promote_eps and d_vol[vb] < config.boundary_promote_eps:
+                mid = 0.5 * (vol_pts_def[va] + vol_pts_def[vb])
+                sdf_mid = safe_signed_distance(cad, np.array([mid]))[0]
+                if sdf_mid < -3.5:
+                    continue
                 pair = (min(va, vb), max(va, vb))
                 if pair not in dual_vol_edges:
                     boundary_vol_struts.append(pair)
@@ -277,7 +289,7 @@ def build_planar_slicing_surface_dual(
             va, vb = dual_to_vol[da], dual_to_vol[db]
             is_vol = (min(va, vb), max(va, vb)) in vol_edges
 
-        if not is_vol and sdf > config.valley_prune_sdf:
+        if config.valley_prune_sdf is not None and not is_vol and sdf > config.valley_prune_sdf:
             n_pruned_valleys += 1
             continue
 
@@ -304,6 +316,25 @@ def build_planar_slicing_surface_dual(
         if m is not None:
             dual_parts.append(m)
 
+    n_valid_struts = len(dual_parts)
+    caps_count = 0
+    if config.enable_junction_caps and all_dual_edges_pts and manifold3d is not None:
+        all_pts = []
+        for p0, p1 in all_dual_edges_pts:
+            all_pts.append(p0)
+            all_pts.append(p1)
+        if all_pts:
+            all_pts_arr = np.asarray(all_pts, dtype=np.float64)
+            _, unique_idx = np.unique(np.round(all_pts_arr, 3), axis=0, return_index=True)
+            active_node_coords = all_pts_arr[unique_idx]
+            cap_radius = float(config.junction_cap_factor * config.dual_width)
+            caps = [
+                manifold3d.Manifold.sphere(radius=cap_radius, circular_segments=16).translate(pt)
+                for pt in active_node_coords
+            ]
+            dual_parts.extend(caps)
+            caps_count = len(caps)
+
     if dual_parts:
         dual_raw, _ = _union_manifolds_for_joint(dual_parts)
     else:
@@ -316,7 +347,8 @@ def build_planar_slicing_surface_dual(
         "n_promoted_boundary_struts": int(len(boundary_vol_struts)),
         "n_pruned_valleys": int(n_pruned_valleys),
         "n_total_sweep_paths": int(len(all_dual_edges_pts)),
-        "n_valid_manifolds": int(len(dual_parts)),
+        "n_valid_manifolds": int(n_valid_struts),
+        "n_junction_caps": int(caps_count),
         "build_time_s": float(elapsed),
         "status": "ok" if dual_raw is not None else "empty",
     }

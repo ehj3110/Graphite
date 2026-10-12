@@ -15,6 +15,8 @@ Typical imports (see package modules / `__init__`):
 - `calibrate_tpms_point`, `calibrate_tpms_gradient_profile`
 - `extract_isosurface`
 - `blend_lattice_with_skin` (smooth fillet union between implicit lattices and CAD skin)
+- `normalize_tpms_sdf`, `evaluate_normalized_tpms_sdf` (`normalization.py` — metric distance field conversion)
+- `blend_two_tpms_sdfs`, `blend_multi_knot_tpms_sdfs`, `blend_tpms_mid_surfaces`, `create_sheet_from_mid_surface` (`blending.py` — metric mid-surface SDF interpolation)
 - `splitp_piecewise_box_single_pass`, `woodpile_piecewise_box_single_pass`, `build_piecewise_woodpile_mesh`
 - `compute_max_inscribed_sphere_pore_size`, `generate_micropillars`
 - Generators: `generate_conformal_lattice`, `generate_spinodal_lattice`, `generate_graded_lattice`, `generate_field_driven_lattice` (implicit modules)

@@ -52,6 +52,10 @@ class MeshHealthReport:
     non_manifold_edges: int = 0
     non_manifold_vertices: int = 0
     self_intersections: int | None = None
+    surface_area: float = 0.0
+    volume: float = 0.0
+    volume_retention: float | None = None
+    area_retention: float | None = None
     is_export_ready: bool = False
     notes: list[str] = field(default_factory=list)
 
@@ -61,12 +65,15 @@ class MeshRepairConfig:
     """Options for automated mesh repair and validation prior to export."""
 
     auto_repair: bool = True
-    repair_mode: Literal["gentle", "full", "explicit", "implicit", "none"] = "gentle"
+    repair_mode: Literal[
+        "gentle", "full", "explicit", "implicit", "experimental", "print_ready", "none"
+    ] = "gentle"
     escalate_to_full: bool = False
     poisson_depth: int = 10
     max_non_manifold_edges: int = 0
     max_boundary_loops: int = 0
     check_intersections: bool = False
+    strict_export: bool = False
     log_health: bool = True
 
 
@@ -147,6 +154,7 @@ def _step_export_in_subprocess() -> bool:
 def compute_mesh_health(
     mesh: trimesh.Trimesh,
     *,
+    baseline_mesh: trimesh.Trimesh | None = None,
     check_intersections: bool = False,
 ) -> MeshHealthReport:
     """
@@ -289,6 +297,33 @@ def compute_mesh_health(
         except Exception:
             intersections = None
 
+    try:
+        surf_area = float(mesh.area)
+    except Exception:
+        surf_area = 0.0
+
+    try:
+        mesh_vol = float(abs(mesh.volume))
+    except Exception:
+        mesh_vol = 0.0
+
+    vol_retention = None
+    area_retention = None
+    if baseline_mesh is not None:
+        try:
+            base_vol = float(abs(baseline_mesh.volume))
+            if base_vol > 1e-9:
+                vol_retention = mesh_vol / base_vol
+        except Exception:
+            base_vol = 0.0
+
+        try:
+            base_area = float(baseline_mesh.area)
+            if base_area > 1e-9:
+                area_retention = surf_area / base_area
+        except Exception:
+            base_area = 0.0
+
     is_watertight = bool(mesh.is_watertight and boundary_edges_count == 0)
     is_export_ready = (
         is_watertight
@@ -309,6 +344,19 @@ def compute_mesh_health(
     if intersections is not None and intersections > 0:
         notes.append(f"{intersections} self-intersecting faces")
 
+    if vol_retention is not None and vol_retention < 0.50:
+        notes.append(
+            f"Severe volume loss: retention={vol_retention:.1%} (initial={base_vol:,.1f} mm³, current={mesh_vol:,.1f} mm³). "
+            "Struts or features may have dissolved into disconnected artifacts/beads."
+        )
+        is_export_ready = False
+
+    if area_retention is not None and area_retention < 0.40:
+        notes.append(
+            f"Severe surface area loss: retention={area_retention:.1%} (initial={base_area:,.1f} mm², current={surf_area:,.1f} mm²)."
+        )
+        is_export_ready = False
+
     return MeshHealthReport(
         vertex_count=v_count,
         face_count=f_count,
@@ -319,6 +367,10 @@ def compute_mesh_health(
         non_manifold_edges=non_manifold_edges_count,
         non_manifold_vertices=non_manifold_verts_count,
         self_intersections=intersections,
+        surface_area=surf_area,
+        volume=mesh_vol,
+        volume_retention=vol_retention,
+        area_retention=area_retention,
         is_export_ready=is_export_ready,
         notes=notes,
     )
@@ -332,6 +384,12 @@ def repair_mesh_for_export(
     cfg = config or MeshRepairConfig()
     if not cfg.auto_repair or cfg.repair_mode == "none":
         return mesh.copy()
+
+    # If the mesh is already strictly watertight and has zero non-manifold edges, skip repair
+    if mesh.is_watertight:
+        initial_health = compute_mesh_health(mesh)
+        if initial_health.is_export_ready and initial_health.non_manifold_edges == 0:
+            return mesh.copy()
 
     from graphite.repair.repair_suite import repair_trimesh
     repaired, _ = repair_trimesh(
@@ -568,47 +626,75 @@ def export_mesh(
 
     repair_cfg = repair_config or MeshRepairConfig()
 
-    # Pre-export automated repair
-    if repair_cfg.auto_repair and repair_cfg.repair_mode != "none":
-        from graphite.repair.repair_suite import repair_trimesh_gentle, repair_trimesh_poisson
+    # Check if input mesh is already pristine (watertight, 2-manifold, zero defects)
+    initial_health = compute_mesh_health(mesh, check_intersections=repair_cfg.check_intersections)
+    if (
+        initial_health.is_watertight
+        and initial_health.is_export_ready
+        and initial_health.non_manifold_edges == 0
+        and initial_health.boundary_edges == 0
+    ):
+        work_mesh = mesh.copy()
+        health = initial_health
+        repair_notes = ["Input mesh is strictly watertight and 2-manifold; automated repair bypassed."]
+    elif repair_cfg.auto_repair and repair_cfg.repair_mode != "none":
+        if repair_cfg.repair_mode in ("experimental", "print_ready"):
+            from graphite.repair.experimental_repair import repair_mesh_experimental
 
-        work_mesh = repair_trimesh_gentle(mesh)
-        repair_notes = ["Applied gentle triage (dedup, winding, normals, hole filling)."]
+            work_mesh, health, repair_notes = repair_mesh_experimental(
+                mesh,
+                poisson_depth=repair_cfg.poisson_depth,
+                allow_poisson_fallback=repair_cfg.escalate_to_full or True,
+                log_steps=False,
+            )
+        else:
+            from graphite.repair.repair_suite import repair_trimesh_gentle, repair_trimesh_poisson
 
-        # Health check after gentle triage
-        health = compute_mesh_health(
-            work_mesh,
-            check_intersections=repair_cfg.check_intersections,
-        )
+            work_mesh = repair_trimesh_gentle(mesh)
+            repair_notes = ["Applied gentle triage (dedup, winding, normals, hole filling)."]
 
-        # Escalate to full (Poisson) if requested or if gentle triage left defects and escalate_to_full=True
-        should_escalate = (
-            repair_cfg.repair_mode in ("full", "implicit")
-            or (repair_cfg.escalate_to_full and not health.is_export_ready)
-        )
-        if should_escalate:
-            try:
-                repair_notes.append(
-                    f"Deploying Screened Poisson reconstruction (depth={repair_cfg.poisson_depth})."
-                )
-                work_mesh = repair_trimesh_poisson(work_mesh, depth=repair_cfg.poisson_depth)
-                repair_notes.append("Completed Screened Poisson reconstruction.")
-                health = compute_mesh_health(
-                    work_mesh,
-                    check_intersections=repair_cfg.check_intersections,
-                )
-            except Exception as exc:
-                repair_notes.append(f"Poisson reconstruction failed ({exc}); retaining gentle triage mesh.")
+            # Health check after gentle triage
+            health = compute_mesh_health(
+                work_mesh,
+                baseline_mesh=mesh,
+                check_intersections=repair_cfg.check_intersections,
+            )
+
+            # Escalate to full (Poisson) if requested or if gentle triage left defects and escalate_to_full=True
+            should_escalate = (
+                repair_cfg.repair_mode in ("full", "implicit")
+                or (repair_cfg.escalate_to_full and not health.is_export_ready)
+            )
+            if should_escalate:
+                try:
+                    repair_notes.append(
+                        f"Deploying Screened Poisson reconstruction (depth={repair_cfg.poisson_depth})."
+                    )
+                    work_mesh = repair_trimesh_poisson(work_mesh, depth=repair_cfg.poisson_depth)
+                    repair_notes.append("Completed Screened Poisson reconstruction.")
+                    health = compute_mesh_health(
+                        work_mesh,
+                        baseline_mesh=mesh,
+                        check_intersections=repair_cfg.check_intersections,
+                    )
+                except Exception as exc:
+                    repair_notes.append(f"Poisson reconstruction failed ({exc}); retaining gentle triage mesh.")
     else:
         work_mesh = mesh.copy()
         repair_notes = []
         health = compute_mesh_health(
             work_mesh,
+            baseline_mesh=mesh,
             check_intersections=repair_cfg.check_intersections,
         )
 
     if repair_cfg.log_health:
         status_tag = "[PASS]" if health.is_export_ready else "[WARN]"
+        ret_info = ""
+        if health.volume_retention is not None or health.area_retention is not None:
+            v_ret_str = f"{health.volume_retention:.1%}" if health.volume_retention is not None else "N/A"
+            a_ret_str = f"{health.area_retention:.1%}" if health.area_retention is not None else "N/A"
+            ret_info = f" | Ret: Vol={v_ret_str}, Area={a_ret_str}"
         print(
             f"{status_tag} Mesh health verification: "
             f"V={health.vertex_count:,} F={health.face_count:,} "
@@ -617,13 +703,20 @@ def export_mesh(
             f"boundary_edges={health.boundary_edges} "
             f"boundary_loops={health.boundary_loops} "
             f"nm_edges={health.non_manifold_edges} "
-            f"nm_verts={health.non_manifold_vertices}"
+            f"nm_verts={health.non_manifold_vertices} | "
+            f"Area={health.surface_area:,.2f} mm² Vol={health.volume:,.2f} mm³"
+            f"{ret_info}"
         )
         if not health.is_export_ready and health.notes:
             for note in health.notes:
                 print(f"       Health note: {note}")
 
     if not health.is_export_ready:
+        if repair_cfg.strict_export:
+            raise RuntimeError(
+                f"Mesh export aborted by strict_export validation gate: {'; '.join(health.notes)}. "
+                "Resolve remaining defects or disable strict_export to allow output."
+            )
         import warnings
 
         warnings.warn(

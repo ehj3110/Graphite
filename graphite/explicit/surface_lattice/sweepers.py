@@ -9,10 +9,10 @@ Provides three robust solidification engines:
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Callable, Sequence, Union
 import numpy as np
 import trimesh
-from shapely.geometry import LineString, box, Polygon
+from shapely.geometry import LineString, box, Polygon, Point
 from shapely.ops import unary_union
 import manifold3d as m3d
 
@@ -25,31 +25,36 @@ from graphite.explicit.geometry_module import (
 
 def sweep_planar_2d(
     segments_2d: list[tuple[np.ndarray, np.ndarray]],
-    thickness: float = 3.0,
-    strut_w: float = 1.6,
+    thickness: float | Callable[[float, float], float] = 3.0,
+    strut_w: float | np.ndarray | Sequence[float] | Callable[[float, float], float] = 1.6,
     outer_boundary: Polygon | None = None,
     inner_boundary: Polygon | None = None,
     z_center: bool = True,
+    tapered: bool = True,
     number_glyph: Polygon | None = None,
     number_wall: Polygon | None = None,
 ) -> trimesh.Trimesh:
     """
     Extrude 2D line segments orthogonally along Z into a solid watertight plate.
+    Supports uniform or spatially graded strut widths w(x, y) and out-of-plane thickness t_z(x, y).
 
     Parameters
     ----------
     segments_2d : list of (ndarray, ndarray)
         2D line segments on the XY plane.
-    thickness : float
-        Extrusion thickness in mm along Z.
-    strut_w : float
-        In-plane strut width in mm.
+    thickness : float or callable
+        Extrusion thickness in mm along Z, or a callable t_z(x, y) for spatial thickness grading.
+    strut_w : float, array, or callable
+        In-plane strut width in mm. Can be scalar, per-strut sequence, or callable w(x, y).
     outer_boundary : Polygon, optional
         Optional outer clipping boundary polygon.
     inner_boundary : Polygon, optional
         Optional inner boundary polygon for creating a framed perimeter border.
     z_center : bool
         If True, centers the mesh vertically so Z in [-thickness/2, thickness/2].
+    tapered : bool
+        If True and strut_w is callable, constructs continuous linearly tapered trapezoidal
+        ligaments between segment endpoints.
     number_glyph : Polygon, optional
         Optional glyph polygon to cut out from the lattice.
     number_wall : Polygon, optional
@@ -58,17 +63,56 @@ def sweep_planar_2d(
     Returns
     -------
     trimesh.Trimesh
-        Watertight 3D manifold with mathematically flat Z-caps.
+        Watertight 3D manifold mesh.
     """
     if not segments_2d:
         return trimesh.Trimesh()
 
-    # Buffer 2D segments into polygonal bars with square end caps (cap_style=2)
+    # Buffer 2D segments into polygonal bars
     strut_polys: list[Polygon] = []
-    half_w = strut_w / 2.0
-    for p1, p2 in segments_2d:
-        line = LineString([p1[:2], p2[:2]])
-        strut_polys.append(line.buffer(half_w, cap_style=2))
+    is_seq = isinstance(strut_w, (list, tuple, np.ndarray))
+    is_callable = callable(strut_w)
+
+    for idx, (p1, p2) in enumerate(segments_2d):
+        p1_xy = np.asarray(p1[:2], dtype=np.float64)
+        p2_xy = np.asarray(p2[:2], dtype=np.float64)
+        vec = p2_xy - p1_xy
+        length = float(np.linalg.norm(vec))
+        if length < 1e-6:
+            continue
+
+        mid_xy = 0.5 * (p1_xy + p2_xy)
+
+        if is_callable:
+            if tapered:
+                w1 = float(strut_w(p1_xy[0], p1_xy[1]))
+                w2 = float(strut_w(p2_xy[0], p2_xy[1]))
+            else:
+                w_mid = float(strut_w(mid_xy[0], mid_xy[1]))
+                w1 = w2 = w_mid
+        elif is_seq:
+            w_val = float(strut_w[idx])
+            w1 = w2 = w_val
+        else:
+            w_val = float(strut_w)
+            w1 = w2 = w_val
+
+        if tapered and abs(w1 - w2) > 1e-4:
+            # Continuous linearly tapered trapezoid
+            u_dir = vec / length
+            n_dir = np.array([-u_dir[1], u_dir[0]], dtype=np.float64)
+            p1_l = p1_xy + n_dir * (w1 / 2.0)
+            p1_r = p1_xy - n_dir * (w1 / 2.0)
+            p2_r = p2_xy - n_dir * (w2 / 2.0)
+            p2_l = p2_xy + n_dir * (w2 / 2.0)
+            strut_polys.append(Polygon([p1_l, p2_l, p2_r, p1_r]))
+            # Round node discs to guarantee clean seamless intersections
+            strut_polys.append(Point(p1_xy).buffer(w1 / 2.0, quad_segs=8))
+            strut_polys.append(Point(p2_xy).buffer(w2 / 2.0, quad_segs=8))
+        else:
+            avg_w = 0.5 * (w1 + w2)
+            line = LineString([p1_xy, p2_xy])
+            strut_polys.append(line.buffer(avg_w / 2.0, cap_style=2))
 
     lattice_poly = unary_union(strut_polys)
 
@@ -92,8 +136,12 @@ def sweep_planar_2d(
         if outer_boundary is not None:
             final_poly = final_poly.intersection(outer_boundary)
 
+    # Extrude solid mesh
+    is_thickness_callable = callable(thickness)
+    nominal_thick = 1.0 if is_thickness_callable else float(thickness)
+
     path = trimesh.load_path(final_poly)
-    extruded = path.extrude(thickness)
+    extruded = path.extrude(nominal_thick)
 
     if isinstance(extruded, (list, tuple)):
         mesh = trimesh.util.concatenate(extruded)
@@ -102,8 +150,26 @@ def sweep_planar_2d(
     else:
         mesh = extruded
 
-    if z_center:
-        mesh.apply_translation([0.0, 0.0, -thickness / 2.0])
+    if hasattr(mesh, "to_mesh"):
+        mesh = mesh.to_mesh()
+
+    if mesh.volume < 0.0:
+        mesh.faces = mesh.faces[:, [0, 2, 1]]
+
+    if z_center and not is_thickness_callable:
+        mesh.apply_translation([0.0, 0.0, -nominal_thick / 2.0])
+
+    # Apply out-of-plane thickness grading t_z(x, y) if specified
+    if is_thickness_callable:
+        verts = np.asarray(mesh.vertices, dtype=np.float64).copy()
+        # Nominal extrusion has z in [0, 1]
+        z_norm = verts[:, 2] / nominal_thick
+        # If z_center, shift z_norm to [-0.5, 0.5]
+        z_frac = (z_norm - 0.5) if z_center else z_norm
+
+        tz_vals = np.array([float(thickness(vx, vy)) for vx, vy in verts[:, :2]], dtype=np.float64)
+        verts[:, 2] = z_frac * tz_vals
+        mesh = trimesh.Trimesh(vertices=verts, faces=mesh.faces, process=True)
 
     return mesh
 
@@ -115,7 +181,7 @@ def sweep_cylindrical_prisms(
     height: float,
     center: np.ndarray | Sequence[float] | None = None,
     y_base: float = 0.0,
-    strut_w: float = 2.0,
+    strut_w: float | np.ndarray | Sequence[float] | Callable[[float, float], float] = 2.0,
     max_step: float = 1.0,
     add_boundary_rings: bool = True,
     circular_segments: int = 128,
@@ -137,8 +203,8 @@ def sweep_cylindrical_prisms(
         3D cylinder center [x, y, z]. Defaults to [r_out, y_base + height/2, r_out].
     y_base : float
         Lower vertical baseline in mm.
-    strut_w : float
-        In-plane strut width in mm.
+    strut_w : float, array, or callable
+        In-plane strut width in mm. Can be scalar, per-strut sequence, or callable w(u, y).
     max_step : float
         Maximum arc chord step in mm for subdividing curved segments.
     add_boundary_rings : bool
@@ -160,8 +226,10 @@ def sweep_cylindrical_prisms(
 
     radial_thick = (r_out - r_in) + 0.6
     all_prisms: list[m3d.Manifold] = []
+    is_callable_w = callable(strut_w)
+    is_seq_w = isinstance(strut_w, (list, tuple, np.ndarray))
 
-    for p1, p2 in segments_2d:
+    for seg_idx, (p1, p2) in enumerate(segments_2d):
         L2d = float(np.linalg.norm(p2 - p1))
         if L2d < 1e-4:
             continue
@@ -172,12 +240,18 @@ def sweep_cylindrical_prisms(
         else:
             p2_u = p2[0]
 
+        if is_callable_w:
+            w_seg = float(strut_w(0.5 * (p1[0] + p2_u), 0.5 * (p1[1] + p2[1])))
+        elif is_seq_w:
+            w_seg = float(strut_w[seg_idx])
+        else:
+            w_seg = float(strut_w)
+
         n_steps = max(2, int(np.ceil(L2d / max_step)))
         t_vals = np.linspace(0.0, 1.0, n_steps + 1)
         pts: list[np.ndarray] = []
         for t in t_vals:
             u = (1.0 - t) * p1[0] + t * p2_u
-            y = (1.0 - t) * p1[1] + t * p2_u
             th = u / r_mid
             x = c_vec[0] + r_mid * np.cos(th)
             z = c_vec[2] + r_mid * np.sin(th)
@@ -205,7 +279,7 @@ def sweep_cylindrical_prisms(
             b_dir = b_vec / b_len
             n_dir = np.cross(b_dir, t_dir)
 
-            prism = m3d.Manifold.cube([radial_thick, strut_w, L], center=True)
+            prism = m3d.Manifold.cube([radial_thick, w_seg, L], center=True)
             R_mat = [
                 [n_dir[0], b_dir[0], t_dir[0], pmid[0]],
                 [n_dir[1], b_dir[1], t_dir[1], pmid[1]],
@@ -214,16 +288,17 @@ def sweep_cylindrical_prisms(
             all_prisms.append(prism.transform(R_mat))
 
     if add_boundary_rings:
+        ring_w = 2.0 if (is_callable_w or is_seq_w) else float(strut_w)
         for y in [y_base, y_base + height]:
             cyl_out = m3d.Manifold.cylinder(
-                height=strut_w,
+                height=ring_w,
                 radius_low=r_out + 0.1,
                 radius_high=r_out + 0.1,
                 circular_segments=circular_segments,
                 center=True,
             )
             cyl_in = m3d.Manifold.cylinder(
-                height=strut_w + 0.2,
+                height=ring_w + 0.2,
                 radius_low=r_in - 0.1,
                 radius_high=r_in - 0.1,
                 circular_segments=circular_segments,

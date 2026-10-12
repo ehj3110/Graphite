@@ -6,25 +6,54 @@ The `graphite.explicit.interlinked` subsystem generates **kinematic metamaterial
 
 Unlike standard explicit strut lattices (which weld intersecting struts at common nodal junctions to form rigid structural trusses), interlinked lattices maintain **strictly positive physical clearance ($\Delta > 0$)** between adjacent closed rings, catenated polyhedral cages, or interlocking hooks. When fabricated via Selective Laser Melting (SLM), Laser Powder-Bed Fusion (LPBF), SLS, or multi-material jetting, the unbonded bodies move freely relative to one another, producing flexible space fabrics, energy-absorbing polycatenated lattices (PAMs), and kinematic compliant mechanisms.
 
+## Quickstart (Beginner-Friendly One-Liners)
+
+For users who want print-ready chainmail or 3D shock absorbers without dealing with low-level crystallography, use the one-liner presets with pre-tuned **Risk Profiles**:
+
+- **Low Risk** *(Default)*: $1.0\,\text{mm}$ strut diameter, $200\,\mu\text{m}$ clearance (robust, high-reliability printing).
+- **High Risk**: $0.75\,\text{mm}$ strut diameter, $150\,\mu\text{m}$ clearance (fine features, lightweight).
+
+```python
+from graphite.explicit.interlinked import chainmail, space_fabric, shock_absorber, impact_cushion
+
+# 1. Flexible 60x60 mm chainmail sheet
+chainmail(width=60, length=60, export_path="outputs/chainmail.3mf")
+
+# 2. NASA JPL 80x80 mm interlocking space fabric
+space_fabric(width=80, length=80, export_path="outputs/space_fabric.3mf")
+
+# 3. 3D compliant shock absorber cube (40x40x40 mm)
+shock_absorber(size=40, export_path="outputs/shock_absorber.3mf")
+
+# 4. High-risk fine-resolution cushion block
+impact_cushion(size=(50, 50, 25), profile="high_risk", export_path="outputs/cushion.3mf")
+```
+
+Full beginner tutorial, slicing advice, and CLI guide: **[docs/INTERLINKED_USER_GUIDE.md](../../../docs/INTERLINKED_USER_GUIDE.md)**.
+
 ---
 
 ## Subsystem Architecture (Phases 1–5)
 
 ```text
 graphite/explicit/interlinked/
-├── __init__.py         # Public exports (generate_interlinked_lattice, InterlinkedConfig, InterlinkedRegistry, etc.)
+├── __init__.py         # Public exports (generate_interlinked_lattice, assemble, search_interface, etc.)
 ├── particle.py         # Canonical ParticleGeometry (local origin) & InterlinkedParticle (SE(3) instance)
 ├── cell.py             # Declarative BasisParticle, InterlinkedCell protocol, InterlinkedRegistry catalog
 ├── cells.py            # Registered cell library (C-6-TT, D-4-TET, J-4-OCT, Euro 4-in-1, Kusari, NASA Space Fabric)
 ├── seeding.py          # Spatial seeders (Cartesian, Staggered, Hex, Diamond, Cylindrical Wrap, Spherical Shell)
-├── boundary.py         # 3-Tier boundary engine (Policy A: Inset culling, Policy B: Boundary tag, Policy C: Frame)
+├── assemble.py         # Deterministic Multi-Zone Assembly Engine (Continuous & Discrete Stacking Modes)
+├── search.py           # Bounded Deterministic Coarse-to-Fine Interface Parameter Sweep Engine
+├── validator.py        # Two-step quality gate (literal physical collisions & polyhedral catenation)
 ├── clearance.py        # Two-tier KD-tree broad phase + vectorized narrow phase, Gauss linking, pitch solver
+├── catenation.py       # Exact topological catenation audit, cycle extraction, and Hopf linking
+├── boundary.py         # 3-Tier boundary engine (Policy A: Inset culling, Policy B: Boundary tag, Policy C: Frame)
 ├── writer_3mf.py       # ISO/IEC 5165 instanced 3MF package exporter (O(1) prototype storage, 98.6% compression)
 ├── generator.py        # Top-level unified orchestrator (InterlinkedConfig, InterlinkedLatticeResult)
 ├── patterns.py         # Analytical closed rings (European 4-in-1, Japanese Kusari, 3D cubic 8-ring)
 ├── conformal.py        # Planar grid seeding, surface conformal frames, and SDF Inset Culling
 ├── pams.py             # Polycatenated Architected Materials (Zhou et al., Science 2025)
-├── importer.py         # Multi-body STL decompiler, decoupled component scaling, and sheet/rosette tiling
+├── legacy/             # Archived non-deterministic numerical solvers (Powell optimizer)
 └── nasa_hexagon.py     # Code-driven parametric NASA JPL Hexagonal Space Fabric generator
 ```
 
@@ -137,12 +166,44 @@ result.export_stl("lattice.stl")  # Watertight monolithic STL
 
 ---
 
-## Functionally Graded PAMs & Morphological Transitions
+## Functionally Graded PAMs & Universal Heteroepitaxial Transitions
 
-The interlinked engine supports continuous spatial functional grading and inter-topology transitions while strictly maintaining physical non-bonding clearance ($\Delta > 0$):
+The interlinked engine supports continuous spatial functional grading, morphing transitions, and universal discrete heteroepitaxy across all 11 PAM unit cells while strictly maintaining physical non-bonding clearance ($\Delta > 0$):
+- **Universal Discrete Heteroepitaxy:** Connect any two disparate PAM cell architectures (polyhedra, rings, polygons) across $\{100\}$ habit planes. The engine automatically solves:
+  1. **Law 1 (Supercell Coincidence):** Evaluates transverse lattice vectors, integer supercell multipliers $(m_A, n_B)$, and rotation $\theta$ (e.g. $\theta = 45^\circ$ for `pcu` $\leftrightarrow$ `dia` with $p_B = \sqrt{2} p_A$).
+  2. **Law 2 (Aperture Admissibility):** Dynamically computes receiving window apertures and penetrating profile envelopes from 3D geometry without hardcoded constants.
+  3. **Law 3 (Topological Catenation):** Automatically extracts polyhedral face cycles (triangles/quads) or evaluates Gauss linking numbers ($\text{Lk} \ne 0$) for closed rings, optimizing longitudinal interface offset $dx_{\text{int}}$ to maximize clearance.
+- **Universal Multi-Zone Seeding:** Zone-by-zone generation routes through `cell.instantiate_site()`, completely eliminating hardcoded templates across both two-zone transitions (`generate_interlinked_lattice`) and multi-zone buffer superlattices (`generate_epitaxial_superlattice`).
 - **Functionally Graded PAMs:** Continuously grade strut radius $r(\mathbf{x})$ along spatial gradients (e.g. $r = 0.22 \to 0.58\text{ mm}$ on C-6-TT) while guaranteeing $\Delta(x) \ge \Delta_{\min}$ across all interacting particles ([`outputs/graded_pam_c6tt_thickness_gradient.png`](../../../outputs/graded_pam_c6tt_thickness_gradient.png)).
 - **C-6-TT $\leftrightarrow$ D-4-TET Morphological Transitions:** Continuous parametric vertex truncation $\tau \in [0, 1/3]$ applied across multi-layer spatial lattices ($6 \times 2 \times 2 = 24$ cages) with verified positive clearance $\Delta = +0.614\text{ mm}$ ([`outputs/transition_pam_c6_to_d4.png`](../../../outputs/transition_pam_c6_to_d4.png)).
 - Full mathematical theory, scaling laws, and case studies: see [docs/POLYCATED_ARCHITECTED_MATERIALS.md](../../../docs/POLYCATED_ARCHITECTED_MATERIALS.md).
+
+### First-Principles Heteroepitaxy Standard (October 2026 Reset)
+For multi-zone assembly and heteroepitaxial transitions across planar habit boundaries:
+1. **Zero Iterative Culling:** All generated assemblies must form 100% interconnected topological components by physical construction without relying on post-hoc degree-0 culling to hide unlinked floating fragments.
+2. **Shared-Network Symmetry Preservation:** Unit cells sharing the same parent crystallographic network (e.g. D4-CUBE and D4-TET on Diamond `dia`) must be assembled with **zero azimuthal twist (`twist_deg = 0.0`)** along the supercell stacking normal $[0, 0, 1]$. An artificial $60^\circ$ twist severs the parent network's $C_3$ trigonal symmetry, breaking all transverse bonds and shattering the lattice into isolated vertical dimers.
+3. **Rigid $\mathrm{SE}(3)$ Invariance:** When rotating or transforming crystal zones, transformations must act simultaneously on particle centroids $\mathbf{c}_p$ and local orientation frames $\mathbf{R}_p$. Under proper $\mathrm{SE}(3)$ rigid-body transformations, the Gauss Linking Integral $|Lk(\gamma_A, \gamma_B)|$ is strictly invariant.
+4. **Commensurate Centering:** Cross-network transitions on $\{100\}$ (such as PCU $\to$ DIA) that rotate convention cells by $45^\circ$ require a transverse centering shift $\mathbf{t}_{\text{shift}} = [a_{\text{sc}}, 0, 0]$ to align zone centroids and prevent lateral half-cell shear.
+5. **Phase-Aware Glide-Set Slicing (Diamond $\{111\}$):** Slicing diamond cubic lattices along $[1, 1, 1]$ must snap to the high-coordination 3-bond **glide plane** ($d_{\text{glide}} = a\sqrt{3}/4$) rather than the low-coordination 1-bond shuffle plane ($d_{\text{shuffle}} = a\sqrt{3}/12$). Incorporating the crystallographic Shockley partial dislocation shift $\mathbf{s}^* = [0, a\sqrt{6}/12, 0]$ nests the downward-pointing 3-strut tripod of the entering cage directly into the upward-pointing 3-strut tripod of the receiving cage, producing simultaneous 3-face punctures on both polyhedra ($N_A = 3, N_B = 3$) with $+381.4\,\mu\text{m}$ clearance (Coupon 1A).
+6. **Analytical Grain Boundaries & $\Sigma 3$ Coherent Twin Interfaces:**
+   - **Closed-Form Gap Equation:** $g^*(a, r_w) = \frac{1}{2}(\Delta z_A + \Delta z_B) - r_w\left(\frac{1}{\cos\phi_A} + \frac{1}{\cos\phi_B}\right)$ computes the optimal out-of-plane interface gap instantaneously ($<1\,\mu\text{s}$) without numerical solvers.
+   - **Inverted Void O-Lattice Shift:** $\mathbf{s}^* = \mathbf{c}_{F_B} - \mathbf{x}_A^V$ maps solid vertex protrusions directly into receiving polygonal void centers.
+   - **$\Sigma 3$ $\{111\}$ Coherent Twins:** Exact reflection across the $\{111\}$ habit plane ($\mathbf{R}_{\text{twin}} = \mathbf{I} - 2\mathbf{n}\mathbf{n}^T$) with zero in-plane misfit strain ($\Sigma = 3$). Because $\det(\mathbf{R}_{\text{twin}}) = -1$, the engine automatically inverts triangle winding (`faces[:, [0, 2, 1]]`) to guarantee outward-facing watertight 2-manifold STLs.
+7. **Comprehensive Retrospective (What Worked vs. What Didn't Work):**
+   - *Worked:* First-principles symmetry preservation ($0^\circ$ twist on shared networks), glide-set snapping with Shockley shift, closed-form interface gap/shift equations, clean mitered joints with bisector cutting planes, ISO/IEC 5165 instanced 3MF packaging ($98.6\%$ compression).
+   - *Didn't Work / Do Not Repeat:* Naive local frame spinning ($60^\circ$ in place broke $C_3$ symmetry into isolated dimers), post-hoc degree-0 culling (masked bugs and cut perimeter rings), shuffle-plane cleavage on $\{111\}$ (flat triangular floor blocked insertion), coherent twin local rotations without spatial center inversion (caused intra-zone collisions in Zone B), supermesh homotopy / metamorphic adapter cells (distorted strut profiles and bloated 3MF files), tetrahedral $\{100\}$ cleavage ($>69.4\%$ clash rate due to pinched facets).
+8. **Parametric Scaling Laws & Inversion Guidelines:** Unit cell pitch scales linearly as $a = \frac{D + \Delta}{\kappa}$. Calibrated packing constants: $\kappa_{\text{D4-TET}} = 0.1018$, $\kappa_{\text{D4-CUBE}} = 0.0900$, $\kappa_{\text{C6-TT}} = 0.1314$, $\kappa_{\text{J4-RING}} = 0.0848$, $\kappa_{\text{T6-RING}} = 0.1855$. For a standard $19.5\,\text{mm}$ outer cage diameter, the required strut diameters are $2.49\,\text{mm}$ for D4-TET, $2.78\,\text{mm}$ for D4-CUBE, and $3.82\,\text{mm}$ for T6-RING.
+9. **Authoritative Master Documentation:**
+   - Full mathematical derivations, proofs, retrospective post-mortems, scaling tables, and dimensioning theory: [docs/POLYCATED_ARCHITECTED_MATERIALS.md](../../../docs/POLYCATED_ARCHITECTED_MATERIALS.md) (Sections 12–19).
+   - First-principles heteroepitaxy proofs: [docs/PAM_FIRST_PRINCIPLES_HETEROEPITAXY.md](../../../docs/PAM_FIRST_PRINCIPLES_HETEROEPITAXY.md).
+   - Precomputed $O(1)$ transition lookup catalog: [docs/PAM_TRANSITION_LOOKUP_TABLE.md](../../../docs/PAM_TRANSITION_LOOKUP_TABLE.md).
+   - Crystallographic supercell scaling across $\{100\}$, $\{110\}$, $\{111\}$: [docs/PAM_SUPERCELL_SCALING_AND_NOTATION.md](../../../docs/PAM_SUPERCELL_SCALING_AND_NOTATION.md).
+
+10. **Headless CLI Utilities & Visualization:**
+   - **Turnkey Generator CLI:** `python scripts/generate_pam.py --preset shock_absorber --box 40 40 40 --out outputs/shock.3mf` (or `python -m graphite.explicit.interlinked`) generates print-ready instanced 3MF/STL lattices, DfAM preflight checks (`--dry-run`), solid CAD handling borders (`--frame`), and scientific preview PNGs (`--preview`).
+   - **Dimensioning CLI:** `python scripts/dimension_pam.py --cell d4tet --wire-diameter 0.75 --clearance 0.20` solves pitch, solid fraction, jamming limits, and physical cage outer diameters ($D_{\text{cage}}$).
+   - **Matte Gallery Visualizer:** `python scripts/pam_gallery.py --cell d4tet --cutaway` renders publication-grade matte studio cards with longitudinal cross-sections.
+   - **Two-Particle Workbench:** `python scripts/pam_workbench.py` provides instant (<100 ms) clearance and Gauss linking parameter sweeps.
 
 ---
 
@@ -150,6 +211,6 @@ The interlinked engine supports continuous spatial functional grading and inter-
 
 Run the complete interlinked, polycatenated metamaterial, and integration test battery:
 ```bash
-python -m pytest tests/test_interlinked_pam_integration.py tests/test_interlinked_*.py tests/test_pam_*.py
+python -m pytest tests/test_universal_pam_epitaxy.py tests/test_epitaxial_*.py tests/test_c6_d4_*.py tests/test_interlinked_*.py tests/test_pam_*.py
 ```
-All **100+ tests** pass cleanly.
+All **150+ tests** pass cleanly in $<10\text{s}$.

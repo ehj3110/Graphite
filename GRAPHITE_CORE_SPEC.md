@@ -185,20 +185,58 @@ class Ring:
 @dataclass
 class InterlinkedConfig:
     """Configuration specification for explicit interlinked lattice generation."""
-    pattern: str = "european_4in1"  # 'european_4in1' | 'kusari' | 'cubic_8ring' | 'volumetric_kusari'
-    pitch: float = 10.0  # grid cell pitch L in mm
-    radius_ratio: float = 0.65  # ratio of major radius to pitch (R / L)
-    wire_radius: float = 0.40  # strut wire radius r in mm
-    tilt_angle_deg: float = 28.0  # weave tilt angle in degrees for European 4-in-1
+    pattern: str = "european_4in1"          # Legacy pattern name (overridden by cell=)
+    cell: InterlinkedCell | str | None = None  # Registered cell name or instance; preferred over pattern
+    seeding_type: str = "cartesian"         # 'cartesian' | 'diamond' | 'bcc' | 'staggered' | 'hexagonal' | 'cylindrical' | 'spherical'
+    # NOTE: When seeding_type='cartesian' (default) and cell.preferred_seeding_type differs,
+    #       generator.py auto-selects cell.preferred_seeding_type with a UserWarning.
+    pitch: float = 10.0                     # grid cell pitch L in mm
+    radius_ratio: float = 0.65             # ratio of major radius to pitch (R / L) — legacy ring patterns
+    wire_radius: float = 0.40              # strut wire radius r in mm
+    tilt_angle_deg: float = 28.0           # weave tilt angle in degrees for European 4-in-1
     grid_size: tuple[int, int, int] = (5, 5, 1)  # (nx, ny, nz) grid dimensions
-    num_ring_segments: int = 24  # discretization segments per ring
-    min_clearance: float = 0.30  # required minimum surface-to-surface gap in mm
-    cull_margin: float = 0.50  # SDF inset culling buffer margin in mm
-    add_spheres: bool = True  # fillet spheres at ring polygon nodes
+    num_ring_segments: int = 24            # discretization segments per ring
+    min_clearance: float = 0.30            # required minimum surface-to-surface gap in mm
+    auto_resolve_pitch: bool = False       # if True, solve pitch to satisfy min_clearance
+    cull_margin: float = 0.50              # SDF inset culling buffer margin in mm
+    add_spheres: bool = True               # fillet spheres at ring polygon nodes (legacy)
     flat_radius: float | None = None
     arch_radius: float | None = None
     arch_z_radius: float | None = None
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    cylinder_radius: float | None = None
+    cylinder_height: float | None = None
+    sphere_radius: float | None = None
+    add_perimeter_frame: bool = False
+    frame_wall_thickness: float = 1.0
+    frame_margin: float = 0.50
+    frame_shape: str = "box"
+    export_format: str = "stl"
+    support_recipe: str | None = None
+    # Heteroepitaxial transition fields:
+    transition_to_cell: InterlinkedCell | str | None = None  # second zone cell for epitaxial superlattice
+    transition_config: Any | None = None
+    transition_mode: str = "discrete"      # 'discrete' | 'morph'
+    num_morph_layers: int = 2
+    habit_plane: str = "100"               # '{100}' | '{110}' | '{111}' habit plane orientation
+    auto_buffer: bool = True               # automatically route mismatched transitions via Dijkstra buffer path
+    buffer_layers_per_zone: int = 2        # repeat layers per buffer cell zone
+    enable_strut_taper: bool = True        # enable boundary strut tapering (gamma) and cage shrinkage (eta)
+    strut_taper_gamma: float = 0.70        # boundary wire radius scale factor (0 < gamma <= 1.0)
+    cage_shrink_eta: float = 0.90          # boundary cage scale factor (0 < eta <= 1.0)
+    zones: Sequence[Any] | None = None     # multi-zone superlattice zone list
+    # Gradient and dimensioning:
+    thickness_gradient: Any | None = None
+    gradient_axis: str | None = None
+    gradient_radius_range: tuple[float, float] | None = None
+    gradient_bounds: tuple[float, float] | None = None
+    num_thickness_buckets: int = 16
+    rotation_matrix: Any | None = None
+    orientation: Any | None = None
+    euler_angles_deg: Sequence[float] | None = None
+    target_solid_fraction: float | None = None
+    target_clearance: float | None = None
+    warning_clearance: float = DEFAULT_WARNING_CLEARANCE
 ```
 
 #### `InterlinkedLatticeResult`
@@ -208,15 +246,18 @@ class InterlinkedConfig:
 class InterlinkedLatticeResult:
     """Output payload of the interlinked lattice generation pipeline."""
     mesh: trimesh.Trimesh
-    rings: list[Ring]
-    num_rings: int
+    rings: list[Ring]        # backward-compatible; empty for modular cells
+    num_rings: int           # total surviving particles/rings
     num_nodes: int
     num_struts: int
     min_clearance: float
     clearance_valid: bool
     volume: float
-    bounds: np.ndarray  # shape: (2, 3), dtype: float64
+    bounds: np.ndarray       # shape: (2, 3), dtype: float64
     metadata: dict = field(default_factory=dict)
+    particles: list[InterlinkedParticle] = field(default_factory=list)
+    frame_mesh: trimesh.Trimesh | None = None
+    wire_radius: float = 0.40
 ```
 
 #### `ImportedInterlinkedCell`
@@ -289,6 +330,127 @@ class PAMLatticeResult:
 
     def combined_mesh(self) -> trimesh.Trimesh: ...
 ```
+
+#### `PAMDimensionResult`
+*Module:* [`graphite.explicit.interlinked.dimensioning`](graphite/explicit/interlinked/dimensioning.py)
+```python
+@dataclass(frozen=True)
+class PAMDimensionResult:
+    """Exact closed-form 2-of-4 parameter dimensioning result for PAM architectures."""
+    cell_name: str
+    parent_network: str
+    pitch: float                      # unit cell pitch a (mm)
+    wire_diameter: float              # strut/wire diameter d (mm)
+    wire_radius: float                # r = d / 2 (mm)
+    clearance: float                  # inter-cage surface clearance Delta (mm)
+    solid_fraction: float             # volume fraction Vf in [0, 1]
+    solid_fraction_percent: float     # Vf * 100 (%)
+    aspect_ratio: float               # xi = d / a
+    kappa: float                      # clearance coefficient (Delta = kappa * a - d)
+    c_geom: float                     # volumetric coefficient (Vf = c_geom * (d / a)^2)
+    max_solid_fraction: float         # jamming limit Vf_max = c_geom * kappa^2
+    max_solid_fraction_percent: float # jamming limit in %
+    warning_clearance: float = 0.250  # DfAM warning threshold (mm)
+    is_feasible: bool = True          # True if Delta > 0 and Vf < Vf_max
+    warnings: list[str] = field(default_factory=list)
+```
+
+#### `EpitaxialAlignment`
+*Module:* [`graphite.explicit.interlinked.epitaxy`](graphite/explicit/interlinked/epitaxy.py)
+```python
+@dataclass(frozen=True)
+class EpitaxialAlignment:
+    """Geometric and crystallographic alignment definition across an epitaxial habit plane."""
+    habit_plane: str = "100"               # '{100}' | '{110}' | '{111}'
+    supercell_ratio: tuple[int, int] = (1, 1)  # (m_A, n_B) supercell integer multipliers
+    rotation_matrix: np.ndarray = field(default_factory=lambda: np.eye(3, dtype=np.float64))  # (3, 3) rotation into habit frame
+    interface_offset: float = 7.20         # longitudinal spacing dx_int (mm) along interface normal
+    strain: float = 0.0                    # in-plane lattice mismatch strain epsilon (|m*a_A - n*a_B| / (m*a_A))
+    phase_shift: tuple[float, float, float] = (7.20, 0.0, 0.0)  # 3D relative shift (dx, dy, dz) in mm
+    taper_gamma: float = 1.0               # wire radius thinning factor on boundary layer (0 < gamma <= 1.0)
+    shrink_eta: float = 1.0                # isotropic cage shrinkage factor on boundary layer (0 < eta <= 1.0)
+    metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+#### `InterfacePhaseOptimizationResult`
+*Module:* [`graphite.explicit.interlinked.epitaxy`](graphite/explicit/interlinked/epitaxy.py)
+```python
+@dataclass
+class InterfacePhaseOptimizationResult:
+    """Diagnostic result of 3D interface phase shift and geometric tapering optimization."""
+    phase_shift: tuple[float, float, float]  # optimized (dx, dy, dz) shift in mm
+    max_clearance_mm: float                  # maximum evaluated surface-to-surface clearance
+    piercings_count: int                     # count of catenating ring-ring piercings across interface
+    is_valid: bool                           # True if piercings >= 1 and clearance >= min_clearance
+    taper_applied: bool = False              # True if Strategy 5 tapering/shrinkage was applied
+    taper_gamma: float = 1.0                 # applied strut thinning factor
+    shrink_eta: float = 1.0                  # applied cage shrinkage factor
+    aperture_margin_mm: float = 0.0          # inscribed aperture radius margin (D_inscribed - D_profile)
+```
+
+#### `BufferPathResult`
+*Module:* [`graphite.explicit.interlinked.superlattice`](graphite/explicit/interlinked/superlattice.py)
+```python
+@dataclass
+class BufferPathResult:
+    """Result of a Dijkstra pathfinding query through the PAM metamaterial transition graph."""
+    source: str                              # source unit cell name
+    target: str                              # target unit cell name
+    path: list[str]                          # ordered cell sequence along optimal path
+    total_cost: float                        # summed Dijkstra transition cost
+    is_direct: bool                          # True if direct transition without intermediate buffer
+    intermediate_cells: list[str]            # list of intermediate buffer cells
+    edge_diagnostics: list[dict[str, Any]]   # per-hop edge metadata (clearance, strain, cost)
+```
+
+#### `InterlinkedTransitionConfig`
+*Module:* [`graphite.explicit.interlinked.epitaxy`](graphite/explicit/interlinked/epitaxy.py)
+```python
+@dataclass
+class InterlinkedTransitionConfig:
+    """Declarative specification for a multi-zone interlinked transition metamaterial."""
+    cell_a: InterlinkedCell | str
+    cell_b: InterlinkedCell | str
+    grid_size_a: tuple[int, int, int] = (2, 2, 2)
+    grid_size_b: tuple[int, int, int] = (2, 2, 2)
+    habit_plane: str = "100"
+    pitch_a: float | None = None
+    pitch_b: float | None = None
+    wire_radius: float = 0.35
+    min_clearance: float = 0.150
+    alignment: EpitaxialAlignment | None = None
+    max_supercell: int = 4
+```
+
+#### `TransitionCatalogEntry`
+*Module:* [`graphite.explicit.interlinked.catalog`](graphite/explicit/interlinked/catalog.py)
+```python
+@dataclass(frozen=True)
+class TransitionCatalogEntry:
+    """Standardized, precomputed entry for a PAM transition or habit plane reorientation."""
+    key: str
+    transition_type: str  # "same_cell_plane" | "inter_cell"
+    cell_a: str
+    cell_b: str
+    plane_a: str
+    plane_b: str
+    habit_plane: str
+    classification: str  # "DIRECT" | "BUFFERED" | "FRUSTRATED"
+    is_feasible: bool
+    pitch_a_mm: float
+    pitch_b_mm: float
+    pitch_ratio: float
+    gap_mm: float
+    gap_ratio: float
+    twist_deg: float
+    phase_shift: tuple[float, float, float]
+    min_clearance_um: float
+    boundary_links: int
+    failure_reason: str = ""
+    recommended_routes: tuple[str, ...] = field(default_factory=tuple)
+    symmetry_notes: str = ""
+```
+
 
 #### `LatticeGraph`
 *Module:* [`graphite.generators.pentamode`](graphite/generators/pentamode.py)
@@ -420,6 +582,20 @@ class TpmsParameterLookup:
     residual_pore_mm: float
     residual_solid_fraction: float
     notes: list[str]
+```
+
+#### `TPMSNormalizedFieldConfig`
+*Module:* [`graphite.implicit.normalization`](graphite/implicit/normalization.py)
+```python
+@dataclass(frozen=True)
+class TPMSNormalizedFieldConfig:
+    """Configuration specification for evaluating a metric-normalized TPMS Signed Distance Field."""
+    lattice_type: str = "Gyroid"
+    unit_cell_size: float = 4.0        # mm
+    wall_thickness: float = 0.5        # mm
+    is_sheet: bool = True
+    epsilon: float = 1e-7              # Gradient regularization parameter
+    clip_distance: float | None = None # Clamping bound in mm (defaults to L / 2.0)
 ```
 
 #### `MeshHealthReport`, `MeshRepairConfig` & `ExportResult`
@@ -825,6 +1001,83 @@ def blend_lattice_with_skin(
     method: str = "polynomial",
 ) -> np.ndarray:
     """Smoothly blend interior implicit lattice field with an exterior CAD skin."""
+
+def compute_transition_weights(
+    coord: np.ndarray,
+    start_val: float,
+    end_val: float,
+    kernel: Literal["linear", "smoothstep", "smootherstep"] = "smoothstep",
+) -> np.ndarray:
+    """Compute smooth spatial transition weight field alpha in [0, 1] across an interval."""
+
+def blend_normalized_sdfs(
+    sdf_a: np.ndarray,
+    sdf_b: np.ndarray,
+    alpha: np.ndarray,
+) -> np.ndarray:
+    """Linearly interpolate two metric normalized signed distance fields: (1 - alpha) * a + alpha * b."""
+
+def blend_tpms_lattices(
+    config_a: TPMSNormalizedFieldConfig,
+    config_b: TPMSNormalizedFieldConfig,
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+    transition_axis: Literal["X", "Y", "Z"] = "Z",
+    transition_range: tuple[float, float] = (4.0, 6.0),
+    kernel: Literal["linear", "smoothstep", "smootherstep"] = "smoothstep",
+) -> np.ndarray:
+    """End-to-end evaluation and blending of two TPMS lattices across a transition zone."""
+
+def blend_multi_knot_tpms_sdfs(
+    lattice_type: str,
+    axis_knots: Sequence[float],
+    period_knots: Sequence[float],
+    thickness_knots: Sequence[float],
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+    transition_axis: Literal["X", "Y", "Z"] = "Z",
+    kernel: Literal["linear", "smoothstep", "smootherstep"] = "smoothstep",
+    is_sheet: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Evaluate and blend multi-knot metric-normalized TPMS signed distance fields with piece-wise knot zones."""
+```
+
+#### Metric SDF Normalization & Analytical Gradients
+*Module:* [`graphite.implicit.normalization`](graphite/implicit/normalization.py)
+```python
+def compute_tpms_gradient_analytical(
+    lattice_type: str,
+    k: float,
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute exact closed-form spatial gradient (dF/dx, dF/dy, dF/dz) for Gyroid, Schwarz-P, Diamond."""
+
+def compute_field_gradient_numerical(
+    field: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute spatial gradient using 2nd-order central differences via np.gradient."""
+
+def normalize_tpms_sdf(
+    field: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+    grad: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    clip_distance: float | None = None,
+    epsilon: float = 1e-7,
+) -> np.ndarray:
+    """Normalize raw scalar field F(x) into metric SDF: phi = F / sqrt(||grad F||^2 + eps), clamped to clip_distance."""
+
+def create_thickened_shell_sdf(
+    normalized_mid_sdf: np.ndarray,
+    wall_thickness_mm: float | np.ndarray,
+) -> np.ndarray:
+    """Construct solid sheet representation with metric wall thickness t: Phi_shell = |phi| - t / 2.0."""
 ```
 
 ### 3.5 Meshing & Geometry Synthesis Routines
@@ -1471,6 +1724,85 @@ def compute_jamming_compressive_modulus(
     """Jamming compressive modulus power law Ec = E0 * gamma^beta * phi (Wang et al., Nature 2021)."""
 ```
 
+#### PAM Metamaterial Heteroepitaxy & Multi-Zone Superlattices
+*Modules:* [`graphite.explicit.interlinked.epitaxy`](graphite/explicit/interlinked/epitaxy.py), [`graphite.explicit.interlinked.superlattice`](graphite/explicit/interlinked/superlattice.py)
+
+##### Mathematical Formulations & 5 Robust Transition Strategies
+1. **Inverted Void O-Lattice Alignment (\(\mathcal{O}_{\text{void}}\)):**
+   Maps entering guest cage centroids directly to receiving void barycenters \(\mathbf{v}_k \in \mathcal{V}_A\) to eliminate solid-strut coincidence (\(\Delta \le 0\)):
+   \[
+   \mathbf{T}_{\text{void}} \left(\mathbf{x}^V - \mathbf{v}_k\right) = \mathbf{b}_{\text{aperture}} \quad \text{where} \quad \mathbf{T}_{\text{void}} = \mathbf{I} - \mathbf{A}_B \mathbf{A}_A^{-1}
+   \]
+2. **Rotated Habit Plane Selection (\(\{110\}\), \(\{111\}\)):**
+   Transforms crystal coordinates to laboratory frame where habit normal aligns with Cartesian \(+X\):
+   \[
+   R_{111} = \begin{bmatrix} 1/\sqrt{3} & 1/\sqrt{3} & 1/\sqrt{3} \\ 1/\sqrt{2} & -1/\sqrt{2} & 0 \\ 1/\sqrt{6} & 1/\sqrt{6} & -2/\sqrt{6} \end{bmatrix}
+   \]
+3. **Clearance- & Strain-Weighted Dijkstra Buffer Pathfinding:**
+   Evaluates intermediate compatibility paths across directed graph \(G = (V, E)\) with composite edge cost:
+   \[
+   \text{Cost}(e) = w_{\text{strain}} \cdot \epsilon_{uv} + w_{\text{clearance}} \cdot \left(\frac{\Delta_{\text{target}}}{\Delta_{uv}}\right) + w_{\text{hop}}
+   \]
+4. **Coaxial Baseline & 3D Phase Shift Optimization:**
+   Coarse \(5 \times 5 \times 5\) sampling followed by fine bounded Powell polish over \(\mathbf{\delta} = (\delta_x, \delta_y, \delta_z)\) subject to \(\text{piercings}(\mathbf{\delta}) \ge 1\) and \(\Delta(\mathbf{\delta}) \ge \Delta_{\text{min}}\).
+5. **Local Geometric Scaling & Strut Tapering:**
+   Boundary wire radius thinning (\(r_{\text{wire}} \leftarrow \gamma \cdot r_{\text{wire}}\) with \(\gamma = 0.70\)) and optional isotropic cage shrinkage (\(\mathbf{x}_i \leftarrow \mathbf{c} + \eta (\mathbf{x}_i - \mathbf{c})\) with \(\eta = 0.90\)).
+
+```python
+def get_habit_plane_rotation_matrix(habit_plane: str) -> np.ndarray:
+    """Return orthonormal (3, 3) rotation matrix mapping habit plane normal to +X."""
+
+def extract_void_barycenters(
+    cell: InterlinkedCell | str,
+    pitch: float,
+    habit_plane: str = "100",
+) -> list[np.ndarray]:
+    """Extract open void barycenters via analytical Wyckoff positions and Voronoi medial axis."""
+
+def align_void_olattice(
+    cell_a: InterlinkedCell | str,
+    cell_b: InterlinkedCell | str,
+    pitch_a: float,
+    pitch_b: float,
+    habit_plane: str = "100",
+) -> np.ndarray:
+    """Compute optimal transverse shift (dy, dz) aligning guest cages with host void barycenters."""
+
+def optimize_interface_phase_and_taper(
+    cell_a: InterlinkedCell | str,
+    cell_b: InterlinkedCell | str,
+    pitch_a: float,
+    pitch_b: float,
+    wire_radius: float = 0.35,
+    min_clearance: float = 0.150,
+    habit_plane: str = "100",
+    enable_taper: bool = True,
+    taper_gamma: float = 0.70,
+    cage_shrink_eta: float = 0.90,
+) -> InterfacePhaseOptimizationResult:
+    """Optimize 3D phase shift (dx, dy, dz) and apply Strategy 5 tapering if required."""
+
+def find_buffer_path(
+    source_cell: InterlinkedCell | str,
+    target_cell: InterlinkedCell | str,
+    habit_plane: str = "100",
+    min_clearance: float = 0.100,
+    max_hops: int = 3,
+) -> BufferPathResult:
+    """Find minimum-cost path through PAM transition graph using clearance/strain-weighted Dijkstra."""
+
+def build_auto_buffer_superlattice(
+    source_cell: InterlinkedCell | str,
+    target_cell: InterlinkedCell | str,
+    path_result: BufferPathResult,
+    buffer_layers_per_zone: int = 2,
+    pitch: float | None = None,
+    wire_radius: float = 0.35,
+    habit_plane: str = "100",
+) -> InterlinkedLatticeResult:
+    """Synthesize multi-zone composite superlattice inserting intermediate buffer cells."""
+```
+
 ### 3.8 Damage-Programmable Metamaterials
 *Module:* [`graphite.explicit.damage.dp_cells`](graphite/explicit/damage/dp_cells.py)  
 *Literature Reference:* Gao et al., *Nature* 628, 776–782 (2024): *"Additive fracture energy in hierarchical damage-programmable metamaterials"*
@@ -1586,6 +1918,196 @@ def generate_hybrid_levelset_lattice(
     """Synthesize multi-morphology hybrid lattice with smooth level-set interface and planar CAD boundary capping."""
 ```
 
+### 3.10 Metric Normalized SDF TPMS Blending Engine
+*Modules:* [`graphite.implicit.normalization`](graphite/implicit/normalization.py), [`graphite.implicit.blending`](graphite/implicit/blending.py)
+
+#### Mathematical Formulations
+1. **First-Order Eikonal Distance Normalization:**
+   $$\tilde{\phi}(\mathbf{x}) = \text{clip}\left(\frac{F(\mathbf{x})}{\sqrt{\|\nabla F(\mathbf{x})\|^2 + \epsilon}}, -d_{\text{clip}}, d_{\text{clip}}\right), \quad d_{\text{clip}} = \frac{L}{2.0}$$
+2. **Mid-Surface Linear Combination (Order of Operations):**
+   $$\phi_{\text{mid}}(\mathbf{x}) = (1 - \alpha(\mathbf{x}))\,\tilde{\phi}_1(\mathbf{x}) + \alpha(\mathbf{x})\,\tilde{\phi}_2(\mathbf{x})$$
+3. **Physical Thickness Interpolation & Solid Shell Realization:**
+   $$t_{\text{blend}}(\mathbf{x}) = (1 - \alpha(\mathbf{x}))\,t_1 + \alpha(\mathbf{x})\,t_2, \quad \Phi_{\text{solid}}(\mathbf{x}) = |\phi_{\text{mid}}(\mathbf{x})| - \frac{t_{\text{blend}}(\mathbf{x})}{2.0}$$
+
+```python
+def compute_tpms_gradient_analytical(
+    lattice_type: str,
+    k: float,
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute exact closed-form spatial gradient (dF/dx, dF/dy, dF/dz) for Gyroid, Schwarz-P, Diamond, and Split-P."""
+
+def compute_field_gradient_numerical(
+    field: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute spatial gradient components using second-order central differences on 3D voxel grids."""
+
+def normalize_tpms_sdf(
+    field: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+    grad: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    clip_distance: float | None = None,
+    epsilon: float = 1e-7,
+) -> np.ndarray:
+    """Normalize raw trigonometric field F into approximate metric SDF with gradient stabilization and clamping."""
+
+def evaluate_normalized_tpms_mid_sdf(
+    config: TPMSNormalizedFieldConfig,
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+) -> np.ndarray:
+    """Evaluate and normalize metric mid-surface Signed Distance Field phi_mid for a given TPMS configuration."""
+
+def create_thickened_shell_sdf(
+    normalized_mid_sdf: np.ndarray,
+    wall_thickness_mm: float | np.ndarray,
+) -> np.ndarray:
+    """Construct a metric solid sheet representation: Phi_shell = |normalized_mid_sdf| - t / 2.0."""
+
+def blend_lattice_with_skin(
+    lattice_field: np.ndarray,
+    cad_sdf: np.ndarray,
+    skin_thickness: float,
+    blend_radius: float = 0.0,
+    method: str = "polynomial",
+) -> np.ndarray:
+    """Smoothly blend interior implicit lattice field with exterior CAD skin via R-function fillets."""
+
+def compute_transition_weights(
+    coord: np.ndarray,
+    start_val: float,
+    end_val: float,
+    kernel: Literal["linear", "smoothstep", "smootherstep"] = "smoothstep",
+) -> np.ndarray:
+    """Compute smooth spatial transition weight field alpha in [0, 1] across an interval."""
+
+def blend_normalized_sdfs(
+    sdf_a: np.ndarray,
+    sdf_b: np.ndarray,
+    alpha: np.ndarray,
+) -> np.ndarray:
+    """Linearly interpolate two metric normalized signed distance fields: (1 - alpha)*sdf_a + alpha*sdf_b."""
+
+def blend_tpms_lattices(
+    config_a: TPMSNormalizedFieldConfig,
+    config_b: TPMSNormalizedFieldConfig,
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+    transition_axis: Literal["X", "Y", "Z"] = "Z",
+    transition_range: tuple[float, float] = (4.0, 6.0),
+    kernel: Literal["linear", "smoothstep", "smootherstep"] = "smoothstep",
+) -> np.ndarray:
+    """End-to-end mid-surface blending of two TPMS lattices across a transition interval."""
+
+def blend_multi_knot_tpms_sdfs(
+    lattice_type: str,
+    axis_knots: Sequence[float],
+    period_knots: Sequence[float],
+    thickness_knots: Sequence[float],
+    X: np.ndarray,
+    Y: np.ndarray,
+    Z: np.ndarray,
+    spacing: tuple[float, float, float] | Sequence[float] | float,
+    transition_axis: Literal["X", "Y", "Z"] = "Z",
+    kernel: Literal["linear", "smoothstep", "smootherstep"] = "smoothstep",
+    is_sheet: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Multi-knot smoothstep metric SDF blending along a spatial axis for osteochondral and graded scaffolds."""
+```
+
+### 3.8 Explicit 2D & Surface-Conformal Lattice Engine (`graphite.explicit.surface_lattice`)
+
+```python
+def generate_surface_lattice(
+    surface: str,
+    pattern: str = "tetra_chiral",
+    *,
+    width: float | None = None,
+    height: float | None = None,
+    thickness: float | Callable[[float, float], float] | None = None,
+    r_in: float | None = None,
+    r_out: float | None = None,
+    y_base: float = 0.0,
+    cad_fixture: Union[str, Path, trimesh.Trimesh, None] = None,
+    center_xy: float = 25.4,
+    n_circumferential: int = 10,
+    r_node: float = 2.0,
+    strut_w: float | np.ndarray | Sequence[float] | Callable[[float, float], float] = 1.6,
+    n_circle_segs: int = 16,
+    tapered: bool = True,
+    graded_cell_size: bool = False,
+    cell_size_min: float = 4.0,
+    cell_size_max: float = 12.0,
+    gradient_axis: str = "xy",
+    constant_sf: float | None = None,
+    warp_power: float = 2.0,
+    theta_field: float | Callable[[float], float] | Sequence[float] | None = None,
+    theta_min_deg: float = 5.0,
+    theta_max_deg: float = 45.0,
+    sine_compensation: dict | None = None,
+    profile_compensation: dict | None = None,
+    curvature_compensation: dict | None = None,
+    surface_mesh: trimesh.Trimesh | None = None,
+    sphere_center: Sequence[float] | None = None,
+    trim_radius: float | None = None,
+    export_stl: bool = False,
+    output_path: str | Path | None = None,
+    **kwargs: Any,
+) -> trimesh.Trimesh | Path:
+    """Unified generator for 2D planar plates, cylindrical wraps, and surface-normal skin lattices."""
+
+class SineCurvatureMapper:
+    """Computes exact curvature and arc length for 1D developable sine waves with cubic spline inversion."""
+    amplitude: float
+    wavelength: float
+    kappa_max: float
+    S_period: float
+
+    def curvature_at_s(self, s: float | np.ndarray) -> float | np.ndarray: ...
+    def compensate_theta(self, s: float | np.ndarray, theta_nominal_deg: float = 20.0, sheet_thickness: float = 2.0, ...) -> float | np.ndarray: ...
+    def compensate_strut_thickness(self, s: float | np.ndarray, t_base: float = 1.0, gamma: float = 0.15, ...) -> float | np.ndarray: ...
+
+class ProfileCurvatureMapper:
+    """Computes exact curvature, arc length, and cell size variation for general/semi-random 1D profiles."""
+    length: float
+    S_total: float
+    kappa_max: float
+    kappa_min: float
+
+    def curvature_at_x(self, x: float | np.ndarray) -> float | np.ndarray: ...
+    def curvature_at_s(self, s: float | np.ndarray) -> float | np.ndarray: ...
+    def cell_size_at_s(self, s: float | np.ndarray, cell_size_min: float = 3.5, cell_size_max: float = 14.0, power: float = 0.5) -> float | np.ndarray: ...
+    def compute_column_boundaries(self, cell_size_min: float = 3.5, cell_size_max: float = 14.0, power: float = 0.5, ...) -> np.ndarray: ...
+    def compensate_theta(self, s: float | np.ndarray, ...) -> float | np.ndarray: ...
+    def compensate_strut_thickness(self, s: float | np.ndarray, ...) -> float | np.ndarray: ...
+
+def analyze_pore_maximal_inscribed_circles(
+    domain_width: float,
+    domain_height: float,
+    n_circumferential: int,
+    strut_w: float | np.ndarray | Sequence[float],
+    periodic_x: bool = False,
+    tolerance: float = 0.001,
+) -> dict:
+    """Calculate Maximal Inscribed Circle (MIC) diameter for interior void pores via polylabel."""
+
+def solve_reentrant_dimensions_from_pore(
+    target_mic_pore_mm: float,
+    wall_thickness_mm: float,
+    w_top_ratio: float = 0.65,
+    w_waist_ratio: float = 0.30,
+    aspect_ratio_b_over_a: float = 1.0,
+) -> dict[str, float]:
+    """Analytical solver calculating cell pitch a and height b required to hit a target MIC pore size."""
+```
+
 ---
 
 ## 4. Coordinate Systems, Periodicity & Tiling Conventions
@@ -1685,6 +2207,16 @@ $$W(z) = \int_0^z \omega(t)\,dt \quad \approx \quad \text{cumulative\_trapezoid}
 Orthogonal coordinates are scaled by instantaneous local frequency:
 $$U(x, z) = \omega(z) \cdot x, \quad V(y, z) = \omega(z) \cdot y$$
 TPMS equations evaluate directly on phase coordinates \((U, V, W)\) with period \(2\pi\).
+
+#### 3. Normalized Signed Distance Field (SDF) TPMS Blending
+An alternative continuous functional grading methodology inspired by metric implicit modeling engines:
+1. **Eikonal Normalization:** Converts raw trigonometric field $F(\mathbf{x})$ into metric distance $\tilde{\phi}(\mathbf{x}) \approx F(\mathbf{x}) / \sqrt{\|\nabla F\|^2 + \epsilon}$ clamped to $[-L/2, L/2]$.
+2. **Mid-Surface Linear Combination:** Blends mid-surface zero-crossings $\phi_{\text{mid}} = (1-\alpha)\tilde{\phi}_1 + \alpha\tilde{\phi}_2$ using smoothstep weights $\alpha \in [0, 1]$.
+3. **Metric Physical Thickness:** Interpolates wall thickness $t_{\text{blend}} = (1-\alpha)t_1 + \alpha t_2$ and forms physical solid $\Phi = |\phi_{\text{mid}}| - t_{\text{blend}}/2$.
+
+**Trade-Off Profile:**
+- **Control Surfaces (Jacobian Phase):** Monolithic single-body topology ($N_{\text{comp}} = 1-2$) and smooth minimal surface ($|H| = 12.09\text{ mm}^{-1}$), but exhibits conical coordinate shear and high Eikonal violation ($\|\nabla F\| \approx 6.82\text{ mm}^{-1}$).
+- **Normalized SDF Blending:** Strictly axial channels (zero coordinate shear), true metric distance ($\|\nabla\Phi\| \approx 1.17\text{ mm}^{-1}$), millimeter-accurate physical wall thickness, and lowest solid fraction ripple ($14.9\%$ PTP), but produces sub-voxel boundary slivers ($N_{\text{comp}} = 8-12$) and saddle crease lines ($|H| \approx 17.62\text{ mm}^{-1}$).
 
 ---
 

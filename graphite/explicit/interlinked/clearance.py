@@ -890,3 +890,120 @@ def calibrate_cell_clearance_curve(
         "is_linear": bool(r_squared > 0.999),
         "samples": list(zip(pitches.tolist(), clearances.tolist())),
     }
+
+
+def measure_ring_lattice_clearance(
+    rings: list[Any],
+    min_clearance: float = 0.10,
+    check_linking: bool = False,
+    max_linking_pairs: int = 50,
+) -> dict[str, Any]:
+    """
+    Fast, vectorized two-tier clearance & linking measurement across all rings.
+
+    Uses a cKDTree broad phase to identify all candidate interacting pairs,
+    followed by vectorized segment-segment Euclidean distance for exact
+    surface-to-surface clearance measurement:
+        clearance = d_centerline - (r_wire1 + r_wire2)
+
+    Args:
+        rings: List of Ring or InterlinkedParticle objects.
+        min_clearance: Target minimum clearance threshold in mm.
+        check_linking: If True, evaluates double Gauss linking integral on close pairs.
+        max_linking_pairs: Cap on Gauss linking integral evaluations for speed.
+
+    Returns:
+        dict:
+            global_min_clearance: Global minimum clearance across all pairs in mm.
+            intra_min_clearance: Minimum clearance between rings in the same cluster/site.
+            inter_min_clearance: Minimum clearance between rings in different clusters.
+            catenated_pairs: Count of ring pairs with |Lk| >= 1.
+            num_pairs_checked: Total candidate pairs evaluated.
+            violations: List of pairs with clearance < min_clearance.
+            closest_5_pairs: Top 5 closest pairs with their clearance values.
+    """
+    n = len(rings)
+    if n < 2:
+        return {
+            "global_min_clearance": float("inf"),
+            "intra_min_clearance": float("inf"),
+            "inter_min_clearance": float("inf"),
+            "catenated_pairs": 0,
+            "num_pairs_checked": 0,
+            "violations": [],
+            "closest_5_pairs": [],
+        }
+
+    centers = np.array([r.center for r in rings], dtype=np.float64)
+    radii = np.array([getattr(r, "radius", getattr(r, "geometry", None).bounding_radius if hasattr(r, "geometry") else 1.0) for r in rings], dtype=np.float64)
+    wires = np.array([getattr(r, "wire_radius", 0.35) for r in rings], dtype=np.float64)
+    max_reach = float(np.max(radii + wires))
+
+    tree = cKDTree(centers)
+    candidate_pairs = list(tree.query_pairs(r=2.15 * max_reach))
+
+    global_min_clr = float("inf")
+    intra_min_clr = float("inf")
+    inter_min_clr = float("inf")
+    catenated_count = 0
+    all_records = []
+    linking_evals = 0
+
+    for i, j in candidate_pairs:
+        r_i = rings[i]
+        r_j = rings[j]
+        cluster_i = getattr(r_i, "cell_index", ())
+        cluster_j = getattr(r_j, "cell_index", ())
+
+        d_centerline = ring_to_ring_distance(r_i, r_j)
+        w_i = getattr(r_i, "wire_radius", 0.35)
+        w_j = getattr(r_j, "wire_radius", 0.35)
+        clr = float(d_centerline - (w_i + w_j))
+
+        is_intra = (cluster_i == cluster_j) and (len(cluster_i) > 0)
+        if is_intra:
+            if clr < intra_min_clr:
+                intra_min_clr = clr
+        else:
+            if clr < inter_min_clr:
+                inter_min_clr = clr
+
+        if clr < global_min_clr:
+            global_min_clr = clr
+
+        lk = 0
+        if check_linking and linking_evals < max_linking_pairs:
+            dist_c = float(np.linalg.norm(centers[i] - centers[j]))
+            R_i = getattr(r_i, "radius", 1.0)
+            R_j = getattr(r_j, "radius", 1.0)
+            if dist_c < 1.35 * (R_i + R_j):
+                try:
+                    lk_val = gauss_linking_number(r_i, r_j)
+                    lk = round(lk_val)
+                    if abs(lk) >= 1:
+                        catenated_count += 1
+                    linking_evals += 1
+                except Exception:
+                    pass
+
+        all_records.append({
+            "ring_i": i,
+            "ring_j": j,
+            "is_intra": is_intra,
+            "d_centerline": float(d_centerline),
+            "clearance": float(clr),
+            "linking_number": int(lk),
+        })
+
+    violations = [r for r in all_records if r["clearance"] < min_clearance]
+    all_records.sort(key=lambda x: x["clearance"])
+
+    return {
+        "global_min_clearance": float(global_min_clr),
+        "intra_min_clearance": float(intra_min_clr),
+        "inter_min_clearance": float(inter_min_clr),
+        "catenated_pairs": catenated_count,
+        "num_pairs_checked": len(all_records),
+        "violations": violations,
+        "closest_5_pairs": all_records[:5],
+    }

@@ -22,7 +22,7 @@ Human hub for deep guides. **Agents:** start at [`../AGENTS.md`](../AGENTS.md), 
 | Module | Capability card | Canonical doc(s) |
 |--------|-----------------|------------------|
 | Explicit | [graphite/explicit/README.md](../graphite/explicit/README.md) | [A15_KAGOME_AND_SC_SURFACE_DUAL.md](A15_KAGOME_AND_SC_SURFACE_DUAL.md), [EXPLICIT_ENGINE.md](EXPLICIT_ENGINE.md), [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md), [HEX_EXPLICIT_ENGINE.md](HEX_EXPLICIT_ENGINE.md), [MODULAR_SC_CONFORMAL.md](MODULAR_SC_CONFORMAL.md), [CONFORMAL_DUAL_HEX.md](CONFORMAL_DUAL_HEX.md) |
-| Interlinked & PAMs | [graphite/explicit/interlinked/README.md](../graphite/explicit/interlinked/README.md) | [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md), [POLYCATED_ARCHITECTED_MATERIALS.md](POLYCATED_ARCHITECTED_MATERIALS.md), [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md) |
+| Interlinked & PAMs | [graphite/explicit/interlinked/README.md](../graphite/explicit/interlinked/README.md) | [HETEROEPITAXY_RESEARCH_DOSSIER.md](HETEROEPITAXY_RESEARCH_DOSSIER.md), [INTERLINKED_TESTING_AND_INTEGRATION_GUIDE.md](INTERLINKED_TESTING_AND_INTEGRATION_GUIDE.md), [POLYCATED_ARCHITECTED_MATERIALS.md](POLYCATED_ARCHITECTED_MATERIALS.md), [INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md](INTERLINKED_SYSTEM_ARCHITECTURE_HANDOFF.md) |
 | Implicit | [graphite/implicit/README.md](../graphite/implicit/README.md) | [IMPLICIT_GRADING_AND_TEXTURES.md](IMPLICIT_GRADING_AND_TEXTURES.md), [IMPLICIT_ENGINE.md](IMPLICIT_ENGINE.md), [TPMS_CALIBRATION_WORKFLOW.md](TPMS_CALIBRATION_WORKFLOW.md), [PIECEWISE_PRISM_LATTICE_GENERATION.md](PIECEWISE_PRISM_LATTICE_GENERATION.md) |
 | Math | [graphite/math/README.md](../graphite/math/README.md) | [LATTICE_MATH_ARCHITECTURE.md](LATTICE_MATH_ARCHITECTURE.md) |
 | Aristo FEA | [graphite/aristo/README.md](../graphite/aristo/README.md) | [ARISTO.md](ARISTO.md), [ARISTO_MESHING.md](ARISTO_MESHING.md), [ARISTO_REGRESSION_BASELINE.md](ARISTO_REGRESSION_BASELINE.md) |
@@ -44,8 +44,12 @@ Human hub for deep guides. **Agents:** start at [`../AGENTS.md`](../AGENTS.md), 
 
 Open these only when the task matches the sprint. Prefer the package card first.
 
-| Doc | Topic |
-|-----|--------|
+| [PAM_TRANSITION_LOOKUP_TABLE.md](PAM_TRANSITION_LOOKUP_TABLE.md) | **Authoritative Reference:** Precomputed PAM transition lookup table across {100}, {110}, {111}, rotations, clearances, and non-frustrated bridge routes |
+| [PAM_FIRST_PRINCIPLES_HETEROEPITAXY.md](PAM_FIRST_PRINCIPLES_HETEROEPITAXY.md) | **Canonical Standard:** First-principles PAM heteroepitaxy theory, rotation mystery proof (C3 vs C6), and 5 verified multi-zone systems |
+| [PAM_RETROSPECTIVE_AND_RESET_HANDOFF.md](PAM_RETROSPECTIVE_AND_RESET_HANDOFF.md) | Retrospective, ground-truth reset, unit-cell/super-cell definitions, and Phase 1 reboot plan |
+| [HETEROEPITAXY_RESEARCH_DOSSIER.md](HETEROEPITAXY_RESEARCH_DOSSIER.md) | Scientific research dossier & literature review prompts for unbonded PAM heteroepitaxy |
+| [INTERLINKED_TESTING_AND_INTEGRATION_GUIDE.md](INTERLINKED_TESTING_AND_INTEGRATION_GUIDE.md) | Production integration manual, 11x11 PAM feasibility matrix, and testing guide |
+| [PAM_NU_GRADED_SPECIMEN.md](PAM_NU_GRADED_SPECIMEN.md) | Full-face 50x50 mm NU wire diameter grading report (750 um vs 250 um extreme limit) |
 | [MULTI_LATTICE_BLENDING.md](MULTI_LATTICE_BLENDING.md) | Multi-lattice blending, node role transitions, and interface bridging |
 | [CUSTOM_CELLS_AND_INTERLINKED.md](CUSTOM_CELLS_AND_INTERLINKED.md) | Custom unit cells, STL decompilation, NASA space fabric, and kinematic lattices |
 | [PAM_AUXETIC_INTERLINKED_HANDOFF.md](PAM_AUXETIC_INTERLINKED_HANDOFF.md) | Planning handoff: auxetics/interlinked capabilities vs proposed 3D PAMs (what exists, gaps, stack, architecture constraints) |
@@ -56,12 +60,22 @@ Open these only when the task matches the sprint. Prefer the package card first.
 | [SURFACE_DUAL_ROLES.md](SURFACE_DUAL_ROLES.md) | Universal / layered surface dual roles |
 | [SC_CONFORMAL_THREE_WAY_COMPARE.md](SC_CONFORMAL_THREE_WAY_COMPARE.md) | V1–V4 compare ownership map |
 | [PLAN_2D_LATTICE_SURFACE_CONFORMAL.md](PLAN_2D_LATTICE_SURFACE_CONFORMAL.md) | 2D Lattice & Surface Conformal engine design (plates, cylinders, surface duals) |
+| [2D_LATTICE_ENGINE_RETROSPECTIVE.md](2D_LATTICE_ENGINE_RETROSPECTIVE.md) | Comprehensive retrospective: 2D graded conformal engine, findings, what worked/failed, & engineering rationales |
 | [EXPLICIT_CHIRAL_AUXETIC_LATTICES.md](EXPLICIT_CHIRAL_AUXETIC_LATTICES.md) | Chiral & auxetic metamaterials architecture & API guide |
 | [STREAMLIT_REVAMP.md](STREAMLIT_REVAMP.md) | UI revamp plan (**not implemented**) |
 | [OUTPUTS_MODELS_CLEANUP_HANDOFF.md](OUTPUTS_MODELS_CLEANUP_HANDOFF.md) | `outputs/models/` cleanup guardrails |
 | [PRUSA_SPOOL_CAPS_CATALOG.md](PRUSA_SPOOL_CAPS_CATALOG.md) | Prusa Core One contest spool caps (150 models, parameters, previews, reproduction guide) |
 | [SPINODAL_FLYING_EDGES_TAUBIN_HANDOFF.md](SPINODAL_FLYING_EDGES_TAUBIN_HANDOFF.md) | Spinodal GRF, Flying Edges extraction, and volume-preserving Taubin smoothing handoff |
 | [SMOOTH_BOOLEAN_R_FUNCTIONS_HANDOFF.md](SMOOTH_BOOLEAN_R_FUNCTIONS_HANDOFF.md) | Smooth Boolean Operators (R-functions) & implicit skin blending handoff |
+
+### Implementation plans & active roadmaps
+
+| Plan | Scope |
+|------|-------|
+| [PAM_BLINDSPOTS_IMPLEMENTATION_PLAN.md](plans/PAM_BLINDSPOTS_IMPLEMENTATION_PLAN.md) | PAM Blindspots 5-phase roadmap (Debt, Diagnostics, Cylindrical, Buffers, CSL) |
+| [PAM_PHASE0_COMPLETION_PLAN.md](plans/PAM_PHASE0_COMPLETION_PLAN.md) | Phase 0 Debt clearance: 44 epitaxy tests, 6-cycles, bond-aware seeding, honest gate |
+| [PAM_GENERALIZATION_AND_WORKBENCH_PLAN.md](plans/PAM_GENERALIZATION_AND_WORKBENCH_PLAN.md) | Multi-zone assembly fixes, search sweep, and future-proofing audit |
+
 
 ### Explicit dual / SC lab (open one version, not all)
 

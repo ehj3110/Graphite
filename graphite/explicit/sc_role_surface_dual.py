@@ -13,7 +13,7 @@ from typing import Literal
 import numpy as np
 import trimesh
 
-from graphite.explicit.conformal_core import merge_surface_skin
+from graphite.explicit.conformal_core import merge_surface_skin, safe_signed_distance
 from graphite.explicit.hex_rules import (
     _HEX_FACES,
     _hex_face_centers,
@@ -213,6 +213,7 @@ def _compute_exposed_subquads(
     kept_xyz: tuple[np.ndarray, np.ndarray, np.ndarray],
     covering_neighbors: list[int],
     kept_planes_per_hex: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    occ: np.ndarray | None = None,
 ) -> list[np.ndarray]:
     """Compute the exposed axis-aligned sub-rectangles for a partially covered face via 2x2 quadrant decomposition."""
     c = np.asarray(corners, dtype=np.float64)
@@ -232,6 +233,13 @@ def _compute_exposed_subquads(
             lo1, hi1 = (0.0, 0.5) if q1 == 0 else (0.5, 1.0)
             if not _interval_kept(kept_xyz[a1], lo1, hi1):
                 continue
+            if occ is not None:
+                idx = [0, 0, 0]
+                idx[a0] = q0
+                idx[a1] = q1
+                idx[axis] = 1 if is_max else 0
+                if not occ[idx[0], idx[1], idx[2]]:
+                    continue
             is_cov = False
             for n_hi in covering_neighbors:
                 n_kp = kept_planes_per_hex[n_hi]
@@ -294,6 +302,8 @@ def collect_role_supports(
     kept_planes_per_hex: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
     *,
     round_decimals: int = _EDGE_DECIMALS,
+    sdf_field=None,
+    inside_eps: float = 0.0,
 ) -> list[RoleSupport]:
     """Exposed outer faces, or mid-plane cuts when the outer plane is not kept."""
     elems = np.asarray(hex_elems, dtype=np.float64)
@@ -318,6 +328,11 @@ def collect_role_supports(
     for hi in active:
         corners = elems[int(hi)]
         kept_xyz = kept_planes_per_hex[int(hi)]
+        occ = None
+        if sdf_field is not None:
+            from graphite.explicit.sc_node_plane_trim import occupied_node_plane_boxes
+            planes_xyz = (np.array([0, 0.5, 1.0], dtype=np.float64), np.array([0, 0.5, 1.0], dtype=np.float64), np.array([0, 0.5, 1.0], dtype=np.float64))
+            occ = occupied_node_plane_boxes(corners, sdf_field, planes_xyz, samples_per_axis=10, inside_eps=inside_eps)
         for fi, face in enumerate(_HEX_FACES):
             axis, is_max = _FACE_AXIS_MAX[int(fi)]
             kept = np.asarray(kept_xyz[int(axis)], dtype=np.float64)
@@ -354,9 +369,9 @@ def collect_role_supports(
                         continue
 
             full_quad = axis_aligned_face_quad(corners, int(fi), midplane=is_mid)
-            if not is_mid and covering_neighbors:
+            if not is_mid and (covering_neighbors or occ is not None):
                 sub_quads = _compute_exposed_subquads(
-                    corners, int(fi), kept_xyz, covering_neighbors, kept_planes_per_hex
+                    corners, int(fi), kept_xyz, covering_neighbors, kept_planes_per_hex, occ=occ
                 )
                 for quad in sub_quads:
                     supports.append(
@@ -917,6 +932,7 @@ def build_layered_surface_dual(
     max_edge_length: float | None = None,
     edge_decimals: int = _EDGE_DECIMALS,
     rule_name: str | None = None,
+    cad_mesh: trimesh.Trimesh | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Presence-gated layered dual: promote both-ends-on-support, then F–F / F–E / F–C."""
     pts = np.asarray(nodes, dtype=np.float64)
@@ -1001,6 +1017,22 @@ def build_layered_surface_dual(
                     c_val_a = pts[int(ga), axis_c]
                     c_val_b = pts[int(gb), axis_c]
                     if not np.isclose(c_val_a, c_val_b, atol=1e-3):
+                        if rule_name == "star":
+                            # Star cell C-B struts: one node is body-center B on a cut midplane,
+                            # the other is corner C on an exterior lateral face.
+                            g_ext = gb if not is_mid_b else ga
+                            c_val_ext = pts[int(g_ext), axis_c]
+                            c_mn = float(np.min(corners[:, axis_c]))
+                            c_mx = float(np.max(corners[:, axis_c]))
+                            if np.isclose(c_val_ext, c_mn, atol=1e-3) or np.isclose(c_val_ext, c_mx, atol=1e-3):
+                                # Thin-section guard (flat face fix): ensure the strut does not pass
+                                # through internal solid volume of a thin section.
+                                if cad_mesh is not None:
+                                    mid = 0.5 * (pts[int(ga)] + pts[int(gb)])
+                                    sdf_m = safe_signed_distance(cad_mesh, np.array([mid]))[0]
+                                    if sdf_m < -2.0:
+                                        continue
+                                return True
                         continue
                     c_mn = float(np.min(corners[:, axis_c]))
                     c_mx = float(np.max(corners[:, axis_c]))
@@ -1239,6 +1271,7 @@ def build_f_diamond(
     max_edge_length: float | None = None,
     edge_decimals: int = _EDGE_DECIMALS,
     rule_name: str | None = None,
+    cad_mesh: trimesh.Trimesh | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Layered C/E-then-F dual (name kept for existing callers)."""
     del invent_same_cell
@@ -1251,6 +1284,7 @@ def build_f_diamond(
         max_edge_length=max_edge_length,
         edge_decimals=edge_decimals,
         rule_name=rule_name,
+        cad_mesh=cad_mesh,
     )
 
 
@@ -1373,7 +1407,13 @@ def build_role_surface_dual(
             samples_per_axis=samples_per_axis,
             extent_samples_per_axis=extent_samples_per_axis,
         )
-    supports = collect_role_supports(elems, kept_planes_per_hex, round_decimals=round_decimals)
+    sdf_field = None
+    if cad_mesh is not None:
+        from graphite.explicit.sc_boundary_states import build_edt_sdf_field, estimate_hex_volume_fractions
+        vf0 = estimate_hex_volume_fractions(cad_mesh, elems[: max(1, min(64, len(elems)))], samples_per_axis=8)
+        res = float(vf0.voxel_resolution) if vf0.voxel_resolution > 0 else 0.5
+        sdf_field = build_edt_sdf_field(cad_mesh, res)
+    supports = collect_role_supports(elems, kept_planes_per_hex, round_decimals=round_decimals, sdf_field=sdf_field, inside_eps=0.0)
     supports = bind_roles(nodes, supports, elems, kept_planes_per_hex=kept_planes_per_hex)
     do_synth = False if synthesize_f is None else bool(synthesize_f)
     if policy == "F" and do_synth:
@@ -1414,6 +1454,7 @@ def build_role_surface_dual(
             invent_same_cell=bool(do_synth),
             kept_planes_per_hex=kept_planes_per_hex,
             rule_name=rule,
+            cad_mesh=cad_mesh,
         )
     report.update(info)
     dual_nodes, dual_struts, remap = _compact(nodes, struts)

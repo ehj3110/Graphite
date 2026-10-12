@@ -43,7 +43,9 @@ from .conformal import (
 )
 from .particle import ParticleGeometry, InterlinkedParticle
 from .cell import InterlinkedCell, InterlinkedRegistry
+from .dimensioning import PAMDimensioner, DEFAULT_WARNING_CLEARANCE
 from .cells import (  # ensure cell implementations are loaded and registered
+    CustomWireframeCell,
     D4TetCell,
     J4OctCell,
     European4in1Cell,
@@ -55,6 +57,9 @@ from .seeding import (
     seed_staggered_lattice,
     seed_hexagonal_lattice,
     seed_diamond_lattice,
+    seed_orthogonal_lattice,
+    orthogonal_supercell,
+    seed_bcc_lattice,
     seed_cylindrical_wrap,
     seed_spherical_shell,
     instantiate_lattice_on_sites,
@@ -95,6 +100,16 @@ _LEGACY_PATTERNS = {
 
 
 @dataclass
+class SiteProps:
+    """Per-site particle properties applied during spatial assembly."""
+    wire_radius: float | None = None
+    size_ratio: float | None = None
+    twist_deg: float | None = None
+    rotation: np.ndarray | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class InterlinkedConfig:
     """
     Configuration specification for explicit interlinked lattice generation.
@@ -125,9 +140,11 @@ class InterlinkedConfig:
         frame_margin: Gap clearance between particles and perimeter frame in mm.
         frame_shape: Frame cross-section/hull shape ('box' or 'cylinder').
         export_format: Default export format ('stl' or '3mf').
+        strict: If True, raises exceptions on negative clearance pre-flight or physical violations.
+        site_props: Optional callable(pos: np.ndarray) -> dict | SiteProps evaluating per-site properties.
     """
     pattern: str = "european_4in1"
-    cell: InterlinkedCell | str | None = None
+    cell: InterlinkedCell | str | tuple | dict | None = None
     seeding_type: str = "cartesian"
     pitch: float = 10.0
     radius_ratio: float = 0.65
@@ -152,9 +169,15 @@ class InterlinkedConfig:
     frame_shape: str = "box"
     export_format: str = "stl"
     support_recipe: str | None = None
+    habit_plane: str = "100"
     transition_to_cell: InterlinkedCell | str | None = None
     transition_config: Any | None = None
     transition_mode: str = "discrete"
+    auto_buffer: bool = True
+    buffer_layers_per_zone: int = 2
+    enable_strut_taper: bool = True
+    strut_taper_gamma: float = 0.70
+    cage_shrink_eta: float = 0.90
     num_morph_layers: int = 2
     zones: Sequence[Any] | None = None
     thickness_gradient: Any | None = None
@@ -162,6 +185,14 @@ class InterlinkedConfig:
     gradient_radius_range: tuple[float, float] | None = None
     gradient_bounds: tuple[float, float] | None = None
     num_thickness_buckets: int = 16
+    rotation_matrix: Any | None = None
+    orientation: Any | None = None
+    euler_angles_deg: Sequence[float] | None = None
+    target_solid_fraction: float | None = None
+    target_clearance: float | None = None
+    warning_clearance: float = DEFAULT_WARNING_CLEARANCE
+    strict: bool = False
+    site_props: Callable[[np.ndarray], Any] | None = None
 
 
 @dataclass
@@ -223,6 +254,8 @@ class InterlinkedLatticeResult:
         path: str | Path,
         circular_segments: int = 24,
         include_frame: bool = True,
+        color_by_status: bool = True,
+        status_colors: dict[str, str] | None = None,
     ) -> Path:
         """
         Export assembly as an instanced 3MF package (O(1) prototype storage in <resources>).
@@ -231,6 +264,8 @@ class InterlinkedLatticeResult:
             path: Destination .3mf file path.
             circular_segments: Discretization resolution for prototype mesh generation.
             include_frame: If True and frame_mesh exists, includes frame in 3MF build.
+            color_by_status: If True, assign color groups by particle status (Zone, Colliding, etc.).
+            status_colors: Optional override dictionary mapping status names to RGBA hex strings.
 
         Returns:
             Path to exported 3MF.
@@ -246,6 +281,8 @@ class InterlinkedLatticeResult:
                 output_path=out_p,
                 solid_frames=frame,
                 circular_segments=circular_segments,
+                color_by_status=color_by_status,
+                status_colors=status_colors,
             )
         else:
             # Wrap legacy rings into InterlinkedParticle instances
@@ -277,6 +314,112 @@ class InterlinkedLatticeResult:
                 solid_frames=frame,
                 circular_segments=circular_segments,
             )
+
+    def export(self, path: str | Path, **kwargs: Any) -> Path:
+        """
+        Universal export method. Automatically selects instanced 3MF or monolithic STL
+        based on the file extension (.3mf or .stl).
+        """
+        p = Path(path)
+        if p.suffix.lower() == ".3mf":
+            return self.export_3mf(p, **kwargs)
+        return self.export_stl(p, **kwargs)
+
+    def render(
+        self,
+        path: str | Path,
+        cutaway: bool = False,
+        theme: str = "light",
+        title: str | None = None,
+        subtitle: str | None = None,
+        window_size: tuple[int, int] = (1920, 1080),
+    ) -> Path:
+        """
+        Render a publication-grade matte scientific figure of the generated lattice.
+
+        Args:
+            path: Destination PNG file path.
+            cutaway: If True, crops out half the domain along the X midplane to reveal interior links.
+            theme: 'light', 'neutral', or 'dark'.
+            title: Custom title header (defaults to cell/pattern name).
+            subtitle: Custom subtitle (defaults to strut diameter & clearance metrics).
+            window_size: (width, height) pixel resolution.
+
+        Returns:
+            Path to rendered PNG.
+        """
+        from .viz import render_matte_gallery_specimen
+        out_p = Path(path)
+        effective_title = title or f"{self.metadata.get('cell_name', 'Interlinked Lattice').upper()}"
+        effective_sub = subtitle or (
+            f"Strut: {2.0 * self.wire_radius * 1000.0:.0f} um | "
+            f"Clearance: {self.min_clearance * 1000.0:.1f} um | "
+            f"Links: {self.num_rings}"
+        )
+        parts = self.particles
+        if not parts and self.rings:
+            parts = []
+            for idx, r in enumerate(self.rings):
+                g = ParticleGeometry(
+                    nodes=r.nodes - r.center,
+                    struts=r.struts.copy(),
+                    geometry_type="ring",
+                    bounding_radius=r.radius + r.wire_radius,
+                    metadata={"major_radius": r.radius},
+                )
+                R_mat = _rotation_align_local_z_to_unit(r.normal)
+                T = np.eye(4, dtype=np.float64)
+                T[:3, :3] = R_mat
+                T[:3, 3] = r.center
+                p = InterlinkedParticle(
+                    particle_id=idx,
+                    geometry=g,
+                    transform=T,
+                    sublattice_id=r.tag,
+                    cell_index=tuple(r.cell_index),
+                )
+                parts.append(p)
+        return render_matte_gallery_specimen(
+            particles=parts,
+            out_png=out_p,
+            title=effective_title,
+            subtitle=effective_sub,
+            cutaway=cutaway,
+            theme=theme,
+            window_size=window_size,
+        )
+
+    def summary(self) -> str:
+        """Return a human-readable diagnostic summary of the generated lattice."""
+        bounds_span = self.bounds[1] - self.bounds[0] if len(self.bounds) == 2 else np.zeros(3)
+        cell_name = self.metadata.get("cell_name", "interlinked")
+        pitch = self.metadata.get("pitch", None)
+        dim = self.metadata.get("dimensioning")
+
+        lines = [
+            f"=== Interlinked Lattice Summary ===",
+            f"  Architecture:       {cell_name}",
+        ]
+        if pitch is not None:
+            lines.append(f"  Unit Cell Pitch:    {float(pitch):.4f} mm")
+        if dim is not None and hasattr(dim, "cage_diameter") and dim.cage_diameter > 0.0:
+            lines.append(f"  Cage Outer Dia (D): {dim.cage_diameter:.4f} mm")
+        if dim is not None and hasattr(dim, "solid_fraction_percent"):
+            lines.append(f"  Solid Density (Vf): {dim.solid_fraction_percent:.2f}% (Jamming Limit: {dim.max_solid_fraction_percent:.2f}%)")
+
+        lines.extend([
+            f"  Particles / Rings:  {self.num_rings}",
+            f"  Explicit Vertices:  {self.num_nodes}",
+            f"  Explicit Struts:    {self.num_struts}",
+            f"  Strut Wire Radius:  {self.wire_radius:.3f} mm (Diameter: {2.0 * self.wire_radius:.3f} mm)",
+            f"  Minimum Clearance:  {self.min_clearance * 1000.0:.1f} um ({self.min_clearance:.4f} mm)",
+            f"  Clearance Valid:    {'YES' if self.clearance_valid else 'NO'}",
+            f"  Bounding Envelope:  {bounds_span[0]:.1f} x {bounds_span[1]:.1f} x {bounds_span[2]:.1f} mm",
+            f"  Solid Mesh Faces:   {len(self.mesh.faces) if self.mesh is not None else 0}",
+        ])
+        if self.frame_mesh is not None:
+            lines.append(f"  Handling Frame:     Attached (Solid CAD Perimeter)")
+        return "\n".join(lines)
 
 
 def _particles_to_combined_mesh(
@@ -332,7 +475,10 @@ def _particles_to_combined_mesh(
         # Rigid homogeneous transform
         V_homo = np.hstack([base_mesh.vertices, np.ones((len(base_mesh.vertices), 1), dtype=np.float64)])
         V_trans = (p.transform @ V_homo.T)[:3].T
-        F_trans = base_mesh.faces + vertex_offset
+        if np.linalg.det(p.transform[:3, :3]) < 0:
+            F_trans = base_mesh.faces[:, [0, 2, 1]] + vertex_offset
+        else:
+            F_trans = base_mesh.faces + vertex_offset
 
         transformed_vertices.append(V_trans)
         transformed_faces.append(F_trans)
@@ -341,6 +487,8 @@ def _particles_to_combined_mesh(
     all_v = np.vstack(transformed_vertices)
     all_f = np.vstack(transformed_faces)
     return trimesh.Trimesh(vertices=all_v, faces=all_f, process=False)
+
+
 
 
 
@@ -381,174 +529,77 @@ def _generate_epitaxial_transition_lattice(
     wire_r = float(config.wire_radius)
     min_clr = float(config.min_clearance)
     pitch_a = float(config.pitch) if config.pitch is not None else 9.10
-    pitch_b = float(np.sqrt(2.0) * pitch_a)
 
-    # 3. Solve Epitaxial Alignment via the Three Laws
-    alignment = solve_epitaxial_transition(
-        cell_a=cell_a,
-        cell_b=cell_b,
-        pitch_a=pitch_a,
-        pitch_b=pitch_b,
-        wire_radius=wire_r,
-        min_clearance=min_clr,
-    )
+    net_a = getattr(cell_a, "parent_network", "pcu").lower().strip()
+    net_b = getattr(cell_b, "parent_network", "pcu").lower().strip()
+    if net_a in ("pcu", "bcc") and net_b == "dia":
+        pitch_b = float(np.sqrt(2.0) * pitch_a)
+    elif net_a == "dia" and net_b in ("pcu", "bcc"):
+        pitch_b = float(pitch_a / np.sqrt(2.0))
+    else:
+        pitch_b = float(pitch_a)
 
-    # 4. Instantiate Multi-Zone Particles
-    grid_a = config.grid_size  # (nx, ny, nz)
-    grid_b = config.grid_size
-    dx_int = float(alignment.interface_offset)
-    R_habit = alignment.rotation_matrix
-
-    particles: list[InterlinkedParticle] = []
-    pid = 0
-
-    # Zone 1: Cell A (Simple Cubic, nx layers along -X)
-    for ix in range(-grid_a[0], 0):
-        for iy in range(grid_a[1]):
-            for iz in range(grid_a[2]):
-                origin = np.array([(ix + 1) * pitch_a - dx_int, iy * pitch_a, iz * pitch_a], dtype=np.float64)
-                parts_site = cell_a.instantiate_site((ix, iy, iz), origin, pitch_a, id_start=pid)
-                for p in parts_site:
-                    p.metadata["zone"] = "Zone_A"
-                    p.metadata["layer_x"] = ix
-                    particles.append(p)
-                    pid += 1
-
-    # Zone 3: Cell B (Diamond Cubic, extending along +X)
-    from .pams import _tet_ab_templates, _TET_STRUTS
-
-    L_tet = 0.603 * pitch_b
-    proto_a = ParticleGeometry(nodes=_tet_ab_templates(L_tet)[0], struts=_TET_STRUTS.copy(), bounding_radius=L_tet, geometry_type="TET")
-    proto_b = ParticleGeometry(nodes=_tet_ab_templates(L_tet)[1], struts=_TET_STRUTS.copy(), bounding_radius=L_tet, geometry_type="TET")
-
-    ny_a, nz_a = grid_a[1], grid_a[2]
-    w_y = (ny_a - 1) * pitch_a
-    w_z = (nz_a - 1) * pitch_a
-    margin = 1.0  # Buffer margin to capture boundary sites
-    y_min, y_max = -margin, w_y + margin
-    z_min, z_max = -margin, w_z + margin
-
-    y_dia_min = (y_min + z_min) / np.sqrt(2.0)
-    y_dia_max = (y_max + z_max) / np.sqrt(2.0)
-    z_dia_min = (z_min - y_max) / np.sqrt(2.0)
-    z_dia_max = (z_max - y_min) / np.sqrt(2.0)
-
-    j_min = int(np.floor(y_dia_min / pitch_b)) - 1
-    j_max = int(np.ceil(y_dia_max / pitch_b)) + 1
-    k_min = int(np.floor(z_dia_min / pitch_b)) - 1
-    k_max = int(np.ceil(z_dia_max / pitch_b)) + 1
-
-    fcc_offsets = [(0.0, 0.0, 0.0), (0.5, 0.5, 0.0), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5)]
-    basis_b_vec = np.array([0.25, 0.25, 0.25], dtype=np.float64) * pitch_b
-    seen_sites: set[tuple[float, float, float]] = set()
-
-    for i in range(grid_b[0]):
-        for j in range(j_min, j_max + 1):
-            for k in range(k_min, k_max + 1):
-                cell_orig = np.array([i, j, k], dtype=np.float64) * pitch_b
-                for fcc in fcc_offsets:
-                    pA = cell_orig + np.asarray(fcc, dtype=np.float64) * pitch_b
-                    pB = pA + basis_b_vec
-                    for p_raw, sub in [(pA, "A"), (pB, "B")]:
-                        key = (round(float(p_raw[0]), 3), round(float(p_raw[1]), 3), round(float(p_raw[2]), 3))
-                        if key in seen_sites:
-                            continue
-                        seen_sites.add(key)
-                        pos_rot = R_habit @ p_raw
-                        if (y_min - 1e-4 <= pos_rot[1] <= y_max + 1e-4 and
-                            z_min - 1e-4 <= pos_rot[2] <= z_max + 1e-4 and
-                            0.0 <= pos_rot[0] <= pitch_b * (grid_b[0] - 0.5)):
-                            geom = proto_a if sub == "A" else proto_b
-                            T = np.eye(4, dtype=np.float64)
-                            T[:3, :3] = R_habit
-                            T[:3, 3] = pos_rot
-                            p = InterlinkedParticle(
-                                particle_id=pid,
-                                geometry=geom,
-                                transform=T,
-                                sublattice_id=sub,
-                                metadata={"zone": "Zone_B", "layer_x": int(pos_rot[0] / (pitch_b / 4.0))},
-                            )
-                            particles.append(p)
-                            pid += 1
-
-    # 5. Spatial Strut Thickness Grading
-    from .gradient import resolve_thickness_gradient, LinearThicknessGradient
-    centers_all = np.array([p.center for p in particles], dtype=np.float64) if particles else np.zeros((0, 3))
-    pts_envelope = None
-    grad_axis = config.gradient_axis or (config.thickness_gradient.axis if isinstance(config.thickness_gradient, LinearThicknessGradient) else "x")
-    ax_idx = {"x": 0, "y": 1, "z": 2}.get(grad_axis.lower(), 0)
-    if len(centers_all) > 0:
-        pts_envelope = (float(np.min(centers_all[:, ax_idx])), float(np.max(centers_all[:, ax_idx])))
-
-    gradient = resolve_thickness_gradient(
-        gradient=config.thickness_gradient,
-        gradient_axis=config.gradient_axis,
-        gradient_radius_range=config.gradient_radius_range,
-        gradient_bounds=config.gradient_bounds,
-        points_envelope=pts_envelope,
-    )
-
-    if gradient is not None:
-        for p in particles:
-            p.wire_radius = float(gradient.evaluate(p.center))
-
-    strut_r_input: float | list[float] = (
-        [p.effective_wire_radius(fallback=wire_r) for p in particles]
-        if gradient is not None
-        else wire_r
-    )
-
-    # 6. Clearance Verification
-    clearance_valid = True
-    min_clr_found = float("inf")
-    clr_report = []
-    if check_clearance and len(particles) > 1:
-        clearance_valid, min_clr_found, clr_report = check_particle_clearance(
-            particles,
-            min_clearance=min_clr,
-            strut_radius=strut_r_input,
+    # 3. Resolve InterfaceSpec
+    h_plane = getattr(config, "habit_plane", "100")
+    tc = config.transition_config
+    if tc is not None:
+        from .assemble import InterfaceSpec
+        if isinstance(tc, InterfaceSpec):
+            iface = tc
+        elif isinstance(tc, dict):
+            iface = InterfaceSpec(**tc)
+        else:
+            nominal_gap = float(0.5 * (pitch_a + pitch_b))
+            iface = InterfaceSpec(normal=h_plane, gap=nominal_gap)
+    else:
+        from .assemble import InterfaceSpec
+        nominal_gap = float(0.5 * (pitch_a + pitch_b))
+        iface = InterfaceSpec(
+            normal=h_plane,
+            gap=nominal_gap,
+            shift=np.zeros(3, dtype=np.float64),
+            twist_deg=0.0,
         )
 
-    # 7. Combined Mesh
-    mesh = _particles_to_combined_mesh(
-        particles,
+    # 4. Construct ZoneSpecs
+    from .assemble import ZoneSpec, assemble
+    zone_a = ZoneSpec(
+        cell=cell_a,
+        network=net_a,
+        pitch=pitch_a,
+        grid_size=config.grid_size,
+        frame=h_plane,
+        name="Zone_A",
         wire_radius=wire_r,
+        site_props=config.site_props,
+    )
+    zone_b = ZoneSpec(
+        cell=cell_b,
+        network=net_b,
+        pitch=pitch_b,
+        grid_size=config.grid_size,
+        frame=h_plane,
+        name="Zone_B",
+        wire_radius=wire_r,
+        site_props=config.site_props,
+    )
+
+    # 5. Permissive Multi-Zone Assembly (zero numerical solver loops)
+    res = assemble(
+        zones=[zone_a, zone_b],
+        interfaces=[iface],
+        wire_radius=wire_r,
+        min_clearance=min_clr,
+        check_clearance=check_clearance,
         circular_segments=config.num_ring_segments,
         num_thickness_buckets=config.num_thickness_buckets,
+        strict=config.strict,
     )
-
-    volume = float(mesh.volume) if hasattr(mesh, "volume") else 0.0
-    bounds = np.asarray(mesh.bounds, dtype=np.float64) if len(mesh.vertices) > 0 else np.zeros((2, 3))
-
-    metadata = {
-        "transition_type": "epitaxial",
-        "cell_a": getattr(cell_a, "name", str(cell_a)),
-        "cell_b": getattr(cell_b, "name", str(cell_b)),
-        "alignment": alignment,
-        "pitch_a": pitch_a,
-        "pitch_b": pitch_b,
-        "wire_radius": wire_r,
-        "min_clearance_target": min_clr,
-        "min_clearance_found": min_clr_found,
-        "clearance_valid": clearance_valid,
-        "num_particles": len(particles),
-    }
-
-    return InterlinkedLatticeResult(
-        mesh=mesh,
-        rings=[],
-        num_rings=len(particles),
-        num_nodes=sum(len(p.geometry.nodes) for p in particles),
-        num_struts=sum(len(p.geometry.struts) for p in particles),
-        min_clearance=min_clr_found,
-        clearance_valid=clearance_valid,
-        volume=volume,
-        bounds=bounds,
-        metadata=metadata,
-        particles=particles,
-        wire_radius=wire_r,
-    )
+    res.metadata["transition_type"] = "epitaxial"
+    res.metadata["cell_a"] = cell_a.name
+    res.metadata["cell_b"] = cell_b.name
+    res.metadata["habit_plane"] = h_plane
+    return res
 
 
 def generate_interlinked_lattice(
@@ -571,8 +622,21 @@ def generate_interlinked_lattice(
         config_dict.update(kwargs)
         config = InterlinkedConfig(**config_dict)
 
-    # Check for multi-zone superlattice delegation
+    # Check for multi-zone assemble or superlattice delegation
     if config.zones is not None:
+        if len(config.zones) > 0 and hasattr(config.zones[0], "cell") and hasattr(config.zones[0], "network"):
+            from .assemble import assemble, InterfaceSpec
+            ifaces = [config.transition_config] if isinstance(config.transition_config, InterfaceSpec) else None
+            return assemble(
+                zones=list(config.zones),
+                interfaces=ifaces,
+                wire_radius=config.wire_radius,
+                min_clearance=config.min_clearance,
+                check_clearance=check_clearance,
+                circular_segments=config.num_ring_segments,
+                num_thickness_buckets=config.num_thickness_buckets,
+                strict=config.strict,
+            )
         from .superlattice import SuperlatticeConfig, generate_epitaxial_superlattice
         sl_cfg = SuperlatticeConfig(
             zones=list(config.zones),
@@ -622,6 +686,10 @@ def generate_interlinked_lattice(
                 cell: InterlinkedCell = cell_cls() if callable(cell_cls) else cell_cls
             elif isinstance(config.cell, InterlinkedCell):
                 cell = config.cell
+            elif isinstance(config.cell, (tuple, list)) and len(config.cell) == 2:
+                cell = CustomWireframeCell(nodes=config.cell[0], struts=config.cell[1])
+            elif isinstance(config.cell, dict):
+                cell = CustomWireframeCell(recipe=config.cell)
             elif callable(config.cell):
                 cell = config.cell()
             else:
@@ -630,30 +698,52 @@ def generate_interlinked_lattice(
             cell_cls = InterlinkedRegistry.get(config.pattern)
             cell = cell_cls() if callable(cell_cls) else cell_cls
 
-        # Pitch resolution
-        if config.auto_resolve_pitch:
+        # Pitch and Wire Dimension resolution
+        dimensioning_result = None
+        if config.target_solid_fraction is not None:
+            clr_target = config.target_clearance if config.target_clearance is not None else config.min_clearance
+            dim_res = PAMDimensioner.solve_from_clearance_and_vf(
+                cell=cell,
+                clearance=clr_target,
+                solid_fraction=config.target_solid_fraction,
+                warning_clearance=config.warning_clearance,
+                raise_on_jamming=True,
+            )
+            pitch = dim_res.pitch
+            wire_r = dim_res.wire_radius
+            strut_d = dim_res.wire_diameter
+            dimensioning_result = dim_res
+        elif config.auto_resolve_pitch:
             pitch = cell.resolve_pitch(
                 target_clearance=config.min_clearance,
                 strut_diameter=2.0 * config.wire_radius,
             )
+            wire_r = float(config.wire_radius)
+            strut_d = 2.0 * wire_r
         else:
             pitch = float(config.pitch)
-
-        wire_r = float(config.wire_radius)
-        strut_d = 2.0 * wire_r
+            wire_r = float(config.wire_radius)
+            strut_d = 2.0 * wire_r
 
         # DfAM Pre-Flight Guardrail: analytical check before spatial allocation
+        preflight_warning = None
         try:
             pred_clr = cell.forward_clearance(pitch, strut_d)
             if pred_clr < 0.0:
                 min_p = cell.resolve_pitch(0.0, strut_d)
-                raise ValueError(
+                msg = (
                     f"DfAM Pre-Flight Rejection: Cell '{getattr(cell, 'cell_name', getattr(cell, 'name', 'unknown'))}' "
                     f"at pitch={pitch:.3f} mm and wire_radius={wire_r:.3f} mm has negative predicted clearance "
                     f"({pred_clr:.3f} mm). Components will physically collide and fuse. Minimum pitch required "
                     f"for zero collision: {min_p:.3f} mm."
                 )
-            if check_clearance and pred_clr < float(config.min_clearance) - 1e-6:
+                if config.strict:
+                    raise ValueError(msg)
+                else:
+                    import warnings
+                    warnings.warn(msg, UserWarning, stacklevel=2)
+                    preflight_warning = msg
+            elif check_clearance and pred_clr < float(config.min_clearance) - 1e-6:
                 import warnings
                 warnings.warn(
                     f"DfAM Clearance Warning: Cell '{getattr(cell, 'cell_name', getattr(cell, 'name', 'unknown'))}' "
@@ -665,10 +755,31 @@ def generate_interlinked_lattice(
         except (AttributeError, NotImplementedError):
             pass
 
+
         seeding_type = config.seeding_type.lower().strip()
+
+        # Auto-select seeding topology from cell.preferred_seeding_type when caller
+        # has not overridden seeding_type (i.e., it remains at the default 'cartesian').
+        # This prevents silent failure modes where diamond-network cells produce zero
+        # links because the wrong seeding topology was used.
+        if seeding_type == "cartesian":
+            cell_preferred = getattr(cell, "preferred_seeding_type", None)
+            if cell_preferred and cell_preferred.lower() != "cartesian":
+                import warnings
+                warnings.warn(
+                    f"InterlinkedConfig: seeding_type='cartesian' (default) but cell "
+                    f"'{getattr(cell, 'name', str(cell))}' has preferred_seeding_type="
+                    f"'{cell_preferred}'. Auto-selecting '{cell_preferred}'. "
+                    f"Set seeding_type='{cell_preferred}' explicitly to silence this warning.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                seeding_type = cell_preferred.lower().strip()
 
         # Spatial Seeding
         sublattice_ids = None
+        use_habit_plane = bool(config.habit_plane and str(config.habit_plane).strip() not in ("100", "{100}"))
+
         if seeding_type in ("cylindrical", "cylinder", "cylindrical_wrap"):
             R = config.cylinder_radius if config.cylinder_radius is not None else 20.0
             H = config.cylinder_height if config.cylinder_height is not None else 30.0
@@ -691,6 +802,21 @@ def generate_interlinked_lattice(
             centers = sph_dict["centers"]
             frames = sph_dict["frames"]
             indices = sph_dict["indices"]
+        elif seeding_type in ("orthogonal", "orthogonal_supercell") or use_habit_plane:
+            net = getattr(cell, "parent_network", "pcu")
+            if seeding_type in ("diamond", "cubic_diamond"):
+                net = "dia"
+            elif seeding_type in ("bcc", "body_centered", "body_centered_cubic"):
+                net = "bcc"
+            elif seeding_type in ("cartesian", "pcu", "sc"):
+                net = "pcu"
+            centers, frames, indices, sublattice_ids = seed_orthogonal_lattice(
+                repeats=config.grid_size,
+                pitch=pitch,
+                network=net,
+                plane=config.habit_plane,
+                origin=config.origin,
+            )
         elif seeding_type in ("diamond", "cubic_diamond"):
             centers, frames, indices, sublattice_ids = seed_diamond_lattice(
                 repeats=config.grid_size,
@@ -709,6 +835,12 @@ def generate_interlinked_lattice(
                 pitch=pitch,
                 origin=config.origin,
             )
+        elif seeding_type in ("bcc", "body_centered", "body_centered_cubic"):
+            centers, frames, indices, sublattice_ids = seed_bcc_lattice(
+                repeats=config.grid_size,
+                cell_size=pitch,
+                origin=config.origin,
+            )
         else:
             # Default: Cartesian grid
             centers, frames, indices = seed_cartesian_lattice(
@@ -716,6 +848,15 @@ def generate_interlinked_lattice(
                 pitch=pitch,
                 origin=config.origin,
             )
+
+        # Apply global lattice rotation if specified (rotation_matrix, orientation, or Euler angles)
+        rot_spec = config.rotation_matrix if config.rotation_matrix is not None else config.orientation
+        if rot_spec is not None or config.euler_angles_deg is not None:
+            from .seeding import resolve_orientation_matrix
+            R_rot = resolve_orientation_matrix(rot_spec, euler_angles_deg=config.euler_angles_deg)
+            orig = np.asarray(config.origin, dtype=np.float64)
+            centers = (R_rot @ (centers - orig).T).T + orig
+            frames = np.array([R_rot @ f for f in frames], dtype=np.float64)
 
         # Instantiate particles on sites
         particles = instantiate_lattice_on_sites(
@@ -783,9 +924,52 @@ def generate_interlinked_lattice(
             for p in particles:
                 p.wire_radius = float(gradient.evaluate(p.center))
 
+        # Apply per-site properties if configured
+        if config.site_props is not None:
+            for p in particles:
+                props = config.site_props(p.center)
+                if props is None:
+                    continue
+                if isinstance(props, dict):
+                    w_r = props.get("wire_radius")
+                    s_r = props.get("size_ratio")
+                    tw_deg = props.get("twist_deg")
+                    rot_mat = props.get("rotation")
+                else:
+                    w_r = getattr(props, "wire_radius", None)
+                    s_r = getattr(props, "size_ratio", None)
+                    tw_deg = getattr(props, "twist_deg", None)
+                    rot_mat = getattr(props, "rotation", None)
+
+                if w_r is not None:
+                    p.wire_radius = float(w_r)
+                if s_r is not None and abs(float(s_r) - 1.0) > 1e-4:
+                    scale_factor = float(s_r)
+                    new_nodes = p.geometry.nodes * scale_factor
+                    p.geometry = ParticleGeometry(
+                        nodes=new_nodes,
+                        struts=p.geometry.struts,
+                        bounding_radius=p.geometry.bounding_radius * scale_factor,
+                        geometry_type=p.geometry.geometry_type,
+                        metadata=dict(p.geometry.metadata),
+                    )
+                if rot_mat is not None:
+                    R_add = np.asarray(rot_mat, dtype=np.float64).reshape(3, 3)
+                    p.rotation = R_add @ p.rotation
+                elif tw_deg is not None and abs(float(tw_deg)) > 1e-4:
+                    rad = np.radians(float(tw_deg))
+                    c_th, s_th = np.cos(rad), np.sin(rad)
+                    R_twist = np.array([
+                        [c_th, -s_th, 0.0],
+                        [s_th, c_th, 0.0],
+                        [0.0, 0.0, 1.0],
+                    ], dtype=np.float64)
+                    p.rotation = R_twist @ p.rotation
+
+        has_variable_radii = (gradient is not None) or any(p.wire_radius is not None for p in particles)
         strut_r_input: float | list[float] = (
             [p.effective_wire_radius(fallback=wire_r) for p in particles]
-            if gradient is not None
+            if has_variable_radii
             else wire_r
         )
 
@@ -825,9 +1009,20 @@ def generate_interlinked_lattice(
                     radius=r_maj,
                     wire_radius=wire_r,
                     tag=p.sublattice_id,
-                    cell_index=tuple(p.metadata.get("grid_index", (0, 0, 0))),
+                    cell_index=tuple(p.metadata.get("grid_index", getattr(p, "cell_index", (0, 0, 0)))),
                 )
                 rings.append(r_obj)
+
+        ring_clearance_info = None
+        if check_clearance and len(rings) > 1:
+            from .clearance import measure_ring_lattice_clearance
+            ring_clearance_info = measure_ring_lattice_clearance(
+                rings,
+                min_clearance=config.min_clearance,
+                check_linking=True,
+            )
+            min_clr = min(min_clr, ring_clearance_info["global_min_clearance"])
+            clearance_valid = bool(min_clr >= config.min_clearance and len(ring_clearance_info["violations"]) == 0)
 
         volume = float(mesh.volume) if hasattr(mesh, "volume") else 0.0
         bounds = np.asarray(mesh.bounds, dtype=np.float64) if len(mesh.vertices) > 0 else np.zeros((2, 3))
@@ -841,11 +1036,14 @@ def generate_interlinked_lattice(
             "culled_particles": culled_count,
             "clearance_valid": clearance_valid,
             "min_clearance": min_clr,
+            "dimensioning": dimensioning_result,
+            "ring_clearance": ring_clearance_info,
             "has_frame": frame_mesh is not None,
             "is_watertight": bool(mesh.is_watertight),
             "num_vertices": len(mesh.vertices),
             "num_faces": len(mesh.faces),
             "clearance_report": clr_report,
+            "preflight_warning": preflight_warning,
         }
 
         return InterlinkedLatticeResult(
