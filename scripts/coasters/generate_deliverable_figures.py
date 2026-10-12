@@ -442,8 +442,8 @@ def get_tpms_image(lattice_type, z_mm, target_size_px=360):
     return Image.fromarray(img_data, mode="RGBA").resize((target_size_px, target_size_px), Image.Resampling.LANCZOS)
 
 
-def recolor_coaster_rgba(img, rgb=(30, 58, 138)):
-    """Return a copy of an RGBA coaster image with solid RGB channels set to `rgb` (e.g. #1e3a8a)."""
+def recolor_coaster_rgba(img, rgb=(54, 73, 127)):
+    """Return a copy of an RGBA coaster image with solid RGB channels set to `rgb` (perceived slate-blue #36497f)."""
     arr = np.array(img, dtype=np.uint8)
     mask = arr[:, :, 3] > 0
     arr[mask, 0] = rgb[0]
@@ -475,7 +475,7 @@ def render_polygon_to_image(poly, render_dim=750, color_hex="#141416"):
     return img
 
 
-def add_drop_shadow(coaster_img, blur_radius=16, offset_y=12, shadow_opacity=0.28):
+def add_drop_shadow(coaster_img, blur_radius=16, offset_y=12, shadow_opacity=0.22):
     w, h = coaster_img.size
     pad = blur_radius * 2 + offset_y
     large_w, large_h = w + pad * 2, h + pad * 2
@@ -484,15 +484,15 @@ def add_drop_shadow(coaster_img, blur_radius=16, offset_y=12, shadow_opacity=0.2
     alpha = coaster_img.split()[3]
     tinted_alpha = alpha.point(lambda p: int(p * shadow_opacity))
     
-    tinted = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    tinted = Image.new("RGBA", (w, h), (15, 23, 42, 0))
     tinted.putalpha(tinted_alpha)
     
     shadow_img.paste(tinted, (pad, pad + offset_y))
     blurred = shadow_img.filter(ImageFilter.GaussianBlur(blur_radius))
     
-    composite = Image.new("RGBA", (large_w, large_h), (0, 0, 0, 0))
-    composite.paste(blurred, (0, 0), blurred)
-    composite.paste(coaster_img, (pad, pad), coaster_img)
+    fg_layer = Image.new("RGBA", (large_w, large_h), (0, 0, 0, 0))
+    fg_layer.paste(coaster_img, (pad, pad))
+    composite = Image.alpha_composite(blurred, fg_layer)
     return composite, pad
 
 
@@ -553,7 +553,7 @@ def compose_deliverable_canvas(
     shadowed_items = []
     for label, img in items:
         scaled = img.resize((D, D), Image.Resampling.LANCZOS)
-        shadowed, pad = add_drop_shadow(scaled, blur_radius=blur_rad, offset_y=offset_y, shadow_opacity=0.28)
+        shadowed, pad = add_drop_shadow(scaled, blur_radius=blur_rad, offset_y=offset_y, shadow_opacity=0.22)
         shadowed_items.append((label, shadowed, pad))
         
     item_idx = 0
@@ -570,10 +570,10 @@ def compose_deliverable_canvas(
             coaster_cy = row_cy
             coaster_top_y = coaster_cy - D / 2.0
             
-            # Paste coaster with shadow
+            # Alpha-composite coaster with shadow onto canvas
             paste_x = int(round(coaster_cx - pad - D / 2.0))
             paste_y = int(round(coaster_cy - pad - D / 2.0))
-            canvas.paste(shadowed_img, (paste_x, paste_y), shadowed_img)
+            canvas.alpha_composite(shadowed_img, dest=(paste_x, paste_y))
             
             # Coaster title directly above coaster
             lbl_font = get_coaster_title_font(label, max_w=pitch * 0.88, default_size=default_label_size)
@@ -588,7 +588,7 @@ def compose_deliverable_canvas(
 
 
 # =====================================================================
-# 4. Deliverable Figure Builders (Black #141416 & Blue #1e3a8a)
+# 4. Deliverable Figure Builders (Black #141416 & Blue #36497f)
 # =====================================================================
 
 def save_black_and_blue_variants(
@@ -600,7 +600,7 @@ def save_black_and_blue_variants(
     pad_above,
     stem_name,
 ):
-    """Save both the black (#141416) and blue (#1e3a8a) deliverable figures."""
+    """Save both the black (#141416) and perceived slate-blue (#36497f) deliverable figures."""
     # 1. Black variant
     canvas_black = compose_deliverable_canvas(
         title_text=title_text,
@@ -614,8 +614,8 @@ def save_black_and_blue_variants(
     canvas_black.save(out_black, quality=95)
     print(f"  Saved (Black): {out_black}")
 
-    # 2. Blue variant (#1e3a8a -> RGB(30, 58, 138))
-    blue_items = [(label, recolor_coaster_rgba(img, (30, 58, 138))) for label, img in black_items]
+    # 2. Blue variant (Perceived slate-blue #36497f -> RGB(54, 73, 127))
+    blue_items = [(label, recolor_coaster_rgba(img, (54, 73, 127))) for label, img in black_items]
     canvas_blue = compose_deliverable_canvas(
         title_text=title_text,
         items=blue_items,

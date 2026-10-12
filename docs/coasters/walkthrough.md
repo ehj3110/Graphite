@@ -1,6 +1,6 @@
 # Coaster Collection — Combined Deliverable Figures
 
-This document details the unified 4-figure presentation suite for the complete 3D-printable coaster collection, formatted to match the reference high-contrast presentation canvas (1024:765 aspect ratio, rendered at 2048 × 1530 px high resolution) in both **Black (`#141416`)** and **Dark Blue (`#1e3a8a`)** editions.
+This document details the unified 4-figure presentation suite for the complete 3D-printable coaster collection, formatted to match the reference high-contrast presentation canvas (1024:765 aspect ratio, rendered at 2048 × 1530 px high resolution) in both **Black (`#141416`)** and **Dark Blue (`#36497f`)** editions.
 
 ---
 
@@ -21,13 +21,13 @@ All deliverable figures adhere to strict mathematical placement, cross-section a
    - **Universal Solid Frame**: Outer diameter $100.0\text{ mm}$, inner diameter $93.65\text{ mm}$ ($3.175\text{ mm}$ solid perimeter rim).
 5. **Color Editions**:
    - **Version 1 (Black)**: Deep solid carbon (`#141416`) on studio neutral background (`#F8F9FA`).
-   - **Version 2 (Blue)**: Deep royal navy (`#1e3a8a`) on studio neutral background (`#F8F9FA`).
+   - **Version 2 (Blue)**: Deep royal navy (`#36497f`) on studio neutral background (`#F8F9FA`).
 
 ---
 
 ## 2. Deliverables Summary
 
-| Figure Title | Black Output File | Blue Output File (`#1e3a8a`) | Coasters | Grid Format | Diameter ($D$) | Pitch ($1.2 \times D$) | Side Margin |
+| Figure Title | Black Output File | Blue Output File (`#36497f`) | Coasters | Grid Format | Diameter ($D$) | Pitch ($1.2 \times D$) | Side Margin |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **C15/A15** | `outputs/Coasters/c15_a15_previews.png` | `outputs/Coasters/c15_a15_previews_blue.png` | 6 | 2 Rows × 3 Cols | 482 px | 578.4 px | 10.0% (204.8 px) |
 | **Voroni** | `outputs/Coasters/voroni_previews.png` | `outputs/Coasters/voroni_previews_blue.png` | 6 | 2 Rows × 3 Cols | 482 px | 578.4 px | 10.0% (204.8 px) |
