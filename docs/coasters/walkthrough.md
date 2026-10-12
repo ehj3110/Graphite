@@ -1,69 +1,58 @@
-# Coaster Collection — Combined Deliverable Figures
+# Coaster Deliverable Figures — Final Combined Edition
 
-This document details the unified 4-figure presentation suite for the complete 3D-printable coaster collection, formatted to match the reference high-contrast presentation canvas (1024:765 aspect ratio, rendered at 2048 × 1530 px high resolution) in both **Black (`#141416`)** and **Dark Blue (`#3b66b0`)** editions.
-
----
-
-## 1. Design & Spacing Standard
-
-All deliverable figures adhere to strict mathematical placement, cross-section accuracy, and typographic guidelines:
-1. **Side Margins**: Exactly 10% side margins ($204.8\text{ px}$ left and right) on 2-row layouts (`C15/A15` and `Voroni`), ensuring maximum coaster size without edge crowding.
-2. **Center-to-Center Spacing**: $\text{pitch} = 1.2 \times D$ (center-to-center distance along $X$ and $Y$ equals exactly $1.2 \times \text{diameter}$).
-3. **Typographic Hierarchy (25% Size Reduction)**:
-   - Main figure titles reduced to 51 pt bold.
-   - Individual coaster titles reduced to 44 pt (2-row figures) / 34 pt (3-row figures) and centered directly above each coaster.
-4. **Exact Cross-Section Topology**:
-   - **C15**: Full Frank-Kasper Laves phase tiling ($1800$ basis atoms, cutoff $0.45 \times a$, $z$-limits $5.0\text{ mm}$, offsets $0.0$, $3.125$, $6.25\text{ mm}$).
-   - **A15**: True cubic Kagome slices (basis atoms, cutoff $0.62 \times a$, $z$-limits $2.5\text{ mm}$, offsets $0.0$, $3.125$, $6.25\text{ mm}$).
-   - **Voronoi**: Exact seeds 42, 43, 44 with dense ($n=450$) and sparse ($n=90$) cell counts, dropping seed 45 `large_v4`.
-   - **Explicit**: Standardized $1.0\text{ mm}$ strut width, full triangular height scaling ($s = R\sqrt{3}, h = s\sqrt{3}/2$), and $25.4\text{ mm}$ tesseract pitches.
-   - **TPMS**: Continuous level-set scalar contouring at $Z=0.0\text{ mm}$ and $Z=2.4\text{ mm}$.
-   - **Universal Solid Frame**: Outer diameter $100.0\text{ mm}$, inner diameter $93.65\text{ mm}$ ($3.175\text{ mm}$ solid perimeter rim).
-5. **Color Editions**:
-   - **Version 1 (Black)**: Deep solid carbon (`#141416`) on studio neutral background (`#F8F9FA`).
-   - **Version 2 (Blue)**: Deep royal navy (`#3b66b0`) on studio neutral background (`#F8F9FA`).
+All coaster families have been consolidated into **4 combined deliverable figures** (`1800 x 1350 px`) in [`outputs/Coasters/`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/), provided in **three color/style editions**:
+- **Solid Black (`#141416`)**: `*_previews.png`
+- **Solid Lighter Blue (`#3b66b0`, `RGB(59, 102, 176)`)**: `*_previews_blue.png`
+- **Original Blue Outline (`#1e3a8a`, `RGB(30, 58, 138)`, `linewidth=1.2`)**: `*_previews_outline.png`
 
 ---
 
-## 2. Deliverables Summary
+## Key Specifications Applied
 
-| Figure Title | Black Output File | Blue Output File (`#3b66b0`) | Coasters | Grid Format | Diameter ($D$) | Pitch ($1.2 \times D$) | Side Margin |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **C15/A15** | `outputs/Coasters/c15_a15_previews.png` | `outputs/Coasters/c15_a15_previews_blue.png` | 6 | 2 Rows × 3 Cols | 482 px | 578.4 px | 10.0% (204.8 px) |
-| **Voroni** | `outputs/Coasters/voroni_previews.png` | `outputs/Coasters/voroni_previews_blue.png` | 6 | 2 Rows × 3 Cols | 482 px | 578.4 px | 10.0% (204.8 px) |
-| **Explicit** | `outputs/Coasters/explicit_previews.png` | `outputs/Coasters/explicit_previews_blue.png` | 9 | 3 Rows × 3 Cols | 390 px | 468.0 px | 18.0% (369.0 px) |
-| **TPMS** | `outputs/Coasters/tpms_previews.png` | `outputs/Coasters/tpms_previews_blue.png` | 8 | 3 Rows [3, 2, 3] | 360 px | 432.0 px | 20.9% (428.0 px) |
-
----
-
-## 3. Figures & Gallery
-
-### 1. C15/A15
-Combines the C15 Frank-Kasper polyhedral network (Row 1: offsets 0.0, 3.125 mm, 6.25 mm) and A15 cubic Kagome slices (Row 2: offsets 0.0, 3.125 mm, 6.25 mm):
-
-![C15/A15 Preview (Black)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/c15_a15_previews.png)
-![C15/A15 Preview (Blue)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/c15_a15_previews_blue.png)
+- **Zero Drop Shadows**: All drop shadows have been completely removed (`#FFFFFF` pure white canvas and interior cells).
+- **Exact 2D Cross-Sections**: Re-generated directly from the true 2D cross-section polygons (`build_c15_v1/v2/v3`, `build_a15_v1/v2/v3`, `build_voronoi_polygon`, `build_explicit_polygon`, and exact `z_mm` slice level-sets of the 3D TPMS coasters).
+- **10% Side Margins & $1.2 \times D$ Center-to-Center Spacing**:
+  - 2-row figures (`C15/A15` and `Voroni`) use $D = 482\text{ px}$, giving exact $10\%$ left/right margins ($180.2\text{ px}$ on an $1800\text{ px}$ canvas) and center-to-center spacing $\text{pitch} = 1.2 \times D = 578.4\text{ px}$ both horizontally and vertically.
+  - 3-row figures (`Explicit` and `TPMS`) use $\text{pitch} = 1.2 \times D$ in both directions ($D = 390\text{ px}$ for `Explicit` and $D = 360\text{ px}$ for `TPMS`) so all 3 rows plus labels fit cleanly within the $1350\text{ px}$ height.
+- **25% Reduced Coaster Labels**: Coaster titles are centered directly above each coaster at `27 pt` (`25 pt` for 3-row figures), with main figure headers at `44 pt`.
 
 ---
 
-### 2. Voroni
-Combines high-density organic Voronoi cells (Row 1: `small_v1`, `small_v2`, `small_v3`) and low-density organic cellular patterns (Row 2: `large_v1`, `large_v2`, `large_v3`):
+## Combined Deliverable Figures (Outline, Lighter Blue & Black)
 
-![Voroni Preview (Black)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voroni_previews.png)
-![Voroni Preview (Blue)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voroni_previews_blue.png)
+````carousel
+![C15/A15 — Original Blue Outline (#1e3a8a)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\c15_a15_previews_outline.png)
+<!-- slide -->
+![Voroni — Original Blue Outline (#1e3a8a)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\voroni_previews_outline.png)
+<!-- slide -->
+![Explicit — Original Blue Outline (#1e3a8a)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\explicit_previews_outline.png)
+<!-- slide -->
+![TPMS — Original Blue Outline (#1e3a8a)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\tpms_previews_outline.png)
+<!-- slide -->
+![C15/A15 — Solid Lighter Blue (#3b66b0)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\c15_a15_previews_blue.png)
+<!-- slide -->
+![Voroni — Solid Lighter Blue (#3b66b0)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\voroni_previews_blue.png)
+<!-- slide -->
+![Explicit — Solid Lighter Blue (#3b66b0)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\explicit_previews_blue.png)
+<!-- slide -->
+![TPMS — Solid Lighter Blue (#3b66b0)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\tpms_previews_blue.png)
+<!-- slide -->
+![C15/A15 — Solid Black (#141416)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\c15_a15_previews.png)
+<!-- slide -->
+![Voroni — Solid Black (#141416)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\voroni_previews.png)
+<!-- slide -->
+![Explicit — Solid Black (#141416)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\explicit_previews.png)
+<!-- slide -->
+![TPMS — Solid Black (#141416)](C:\Users\ehunt\.gemini\antigravity\brain\ec7d534e-8069-4ab3-a613-837f39a53621\tpms_previews.png)
+````
 
 ---
 
-### 3. Explicit
-Combines all 9 2D explicit lattice extrusions into a 3×3 grid:
+## Output File Inventory
 
-![Explicit Preview (Black)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_previews.png)
-![Explicit Preview (Blue)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_previews_blue.png)
-
----
-
-### 4. TPMS
-Continuous minimal surfaces across 8 designs:
-
-![TPMS Preview (Black)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/tpms_previews.png)
-![TPMS Preview (Blue)](file:///C:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/tpms_previews_blue.png)
+| Figure Title | Outline (`#1e3a8a`) | Lighter Solid Blue (`#3b66b0`) | Solid Black (`#141416`) |
+| :--- | :--- | :--- | :--- |
+| **C15/A15** | [`c15_a15_previews_outline.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/c15_a15_previews_outline.png) | [`c15_a15_previews_blue.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/c15_a15_previews_blue.png) | [`c15_a15_previews.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/c15_a15_previews.png) |
+| **Voroni** | [`voroni_previews_outline.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voroni_previews_outline.png) | [`voroni_previews_blue.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voroni_previews_blue.png) | [`voroni_previews.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/voroni_previews.png) |
+| **Explicit** | [`explicit_previews_outline.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_previews_outline.png) | [`explicit_previews_blue.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_previews_blue.png) | [`explicit_previews.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/explicit_previews.png) |
+| **TPMS** | [`tpms_previews_outline.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/tpms_previews_outline.png) | [`tpms_previews_blue.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/tpms_previews_blue.png) | [`tpms_previews.png`](file:///c:/Users/ehunt/OneDrive/Documents/Python%20Scripts/Graphite/outputs/Coasters/tpms_previews.png) |

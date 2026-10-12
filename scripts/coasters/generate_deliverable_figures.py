@@ -416,13 +416,13 @@ def sample_tpms_threshold(lattice_type, target_sf=0.33):
     return vals[idx]
 
 
-def get_tpms_image(lattice_type, z_mm, target_size_px=360):
-    res = 512
-    dim = 50.0
+def get_tpms_polygon(lattice_type, z_mm, r_outer=50.0, r_inner=46.825):
+    from functools import reduce
+    res = 400
+    dim = 52.0
     x = np.linspace(-dim, dim, res)
     y = np.linspace(-dim, dim, res)
     X, Y = np.meshgrid(x, y)
-    R = np.sqrt(X**2 + Y**2)
     
     cell_size = 25.0
     omega = 2.0 * np.pi / cell_size
@@ -433,13 +433,22 @@ def get_tpms_image(lattice_type, z_mm, target_size_px=360):
     tau = sample_tpms_threshold(lattice_type, target_sf=0.33)
     F = evaluate_tpms_phase(lattice_type, U, V, W)
     
-    solid_lattice = (np.abs(F) <= tau) & (R <= 46.825)
-    solid_frame = (R <= 50.0) & (R >= 46.825)
-    solid = solid_lattice | solid_frame
+    fig, ax = plt.subplots()
+    cs = ax.contourf(X, Y, np.abs(F), levels=[0.0, float(tau)])
+    plt.close(fig)
     
-    img_data = np.zeros((res, res, 4), dtype=np.uint8)
-    img_data[solid] = SOLID_RGBA
-    return Image.fromarray(img_data, mode="RGBA").resize((target_size_px, target_size_px), Image.Resampling.LANCZOS)
+    polys = []
+    for path in cs.get_paths():
+        rings = [Polygon(pts).buffer(0) for pts in path.to_polygons() if len(pts) >= 3]
+        if rings:
+            polys.append(reduce(lambda a, b: a.symmetric_difference(b), rings))
+    lattice_poly = unary_union(polys)
+    
+    outer_shape = Point(0, 0).buffer(r_outer, resolution=128)
+    inner_shape = Point(0, 0).buffer(r_inner, resolution=128)
+    frame_poly = outer_shape.difference(inner_shape)
+    clipped_lattice = lattice_poly.intersection(inner_shape)
+    return clipped_lattice.union(frame_poly)
 
 
 def recolor_coaster_rgba(img, rgb=(59, 102, 176)):
@@ -453,7 +462,7 @@ def recolor_coaster_rgba(img, rgb=(59, 102, 176)):
 
 
 # =====================================================================
-# 2. Rendering
+# 2. Rendering (Solid & Outline Styles)
 # =====================================================================
 
 def render_polygon_to_image(poly, render_dim=750, color_hex="#141416"):
@@ -466,6 +475,26 @@ def render_polygon_to_image(poly, render_dim=750, color_hex="#141416"):
     ax.set_ylim(-50.5, 50.5)
     
     spl.plot_polygon(poly, ax=ax, add_points=False, color=color_hex, alpha=1.0)
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    
+    fig.canvas.draw()
+    rgba_buf = np.asarray(fig.canvas.buffer_rgba())
+    img = Image.fromarray(rgba_buf.copy(), mode="RGBA")
+    plt.close(fig)
+    return img
+
+
+def render_polygon_outline_to_image(poly, render_dim=482, color_hex="#1e3a8a", linewidth=1.2):
+    """Render polygon with hollow interior and crisp #1e3a8a outlines matching original style."""
+    fig, ax = plt.subplots(figsize=(4, 4), dpi=render_dim / 4.0)
+    fig.patch.set_facecolor("none")
+    ax.set_facecolor("none")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_xlim(-50.5, 50.5)
+    ax.set_ylim(-50.5, 50.5)
+    
+    spl.plot_polygon(poly, ax=ax, add_points=False, facecolor="none", edgecolor=color_hex, linewidth=linewidth, alpha=1.0)
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
     fig.canvas.draw()
@@ -526,7 +555,7 @@ def compose_deliverable_canvas(
     y0 = y_grid_top + title_text_h + pad_above + D / 2.0
     
     scaled_items = [
-        (label, img.resize((D, D), Image.Resampling.LANCZOS))
+        (label, img if img.size == (D, D) else img.resize((D, D), Image.Resampling.LANCZOS))
         for label, img in items
     ]
         
@@ -562,20 +591,22 @@ def compose_deliverable_canvas(
 
 
 # =====================================================================
-# 4. Deliverable Figure Builders (Black #141416 & Lighter Blue #3b66b0)
+# 4. Deliverable Figure Builders (Black, Lighter Blue, & Blue Outlines)
 # =====================================================================
 
-def save_black_and_blue_variants(
+def save_all_variants(
     title_text,
-    black_items,
+    poly_items,  # list of (label, shapely.Polygon)
     layout_rows,
     coaster_size_px,
     default_label_size,
     pad_above,
     stem_name,
+    render_dim=750,
 ):
-    """Save both the black (#141416) and lighter blue (#3b66b0) deliverable figures."""
-    # 1. Black variant
+    """Save Black (#141416), Lighter Blue (#3b66b0), and Blue Outline (#1e3a8a) deliverable figures."""
+    # 1. Black solid variant (#141416)
+    black_items = [(label, render_polygon_to_image(poly, render_dim, "#141416")) for label, poly in poly_items]
     canvas_black = compose_deliverable_canvas(
         title_text=title_text,
         items=black_items,
@@ -586,9 +617,9 @@ def save_black_and_blue_variants(
     )
     out_black = OUTPUT_DIR / f"{stem_name}.png"
     canvas_black.save(out_black, quality=95)
-    print(f"  Saved (Black): {out_black}")
+    print(f"  Saved (Black):   {out_black}")
 
-    # 2. Lighter Blue variant (#3b66b0 -> RGB(59, 102, 176))
+    # 2. Lighter Blue solid variant (#3b66b0 -> RGB(59, 102, 176))
     blue_items = [(label, recolor_coaster_rgba(img, (59, 102, 176))) for label, img in black_items]
     canvas_blue = compose_deliverable_canvas(
         title_text=title_text,
@@ -600,105 +631,126 @@ def save_black_and_blue_variants(
     )
     out_blue = OUTPUT_DIR / f"{stem_name}_blue.png"
     canvas_blue.save(out_blue, quality=95)
-    print(f"  Saved (Blue):  {out_blue}")
+    print(f"  Saved (Blue):    {out_blue}")
+
+    # 3. Blue Outline variant (#1e3a8a, original outline style)
+    outline_items = [
+        (label, render_polygon_outline_to_image(poly, coaster_size_px, "#1e3a8a", linewidth=1.2))
+        for label, poly in poly_items
+    ]
+    canvas_outline = compose_deliverable_canvas(
+        title_text=title_text,
+        items=outline_items,
+        layout_rows=layout_rows,
+        coaster_size_px=coaster_size_px,
+        default_label_size=default_label_size,
+        pad_above=pad_above,
+    )
+    out_outline = OUTPUT_DIR / f"{stem_name}_outline.png"
+    canvas_outline.save(out_outline, quality=95)
+    print(f"  Saved (Outline): {out_outline}")
 
 
 def make_c15_a15_figure():
     print("Building 'C15/A15' deliverable figures (D=482px, 10% side margins, pitch=1.2xD)...")
-    items = [
+    poly_items = [
         # Row 1: C15 offsets 0.0, L/16 (3.125), L/8 (6.25)
-        ("C15_v1", render_polygon_to_image(get_c15_polygon(0.0), 750)),
-        ("C15_v2", render_polygon_to_image(get_c15_polygon(3.125), 750)),
-        ("C15_v3", render_polygon_to_image(get_c15_polygon(6.25), 750)),
+        ("C15_v1", get_c15_polygon(0.0)),
+        ("C15_v2", get_c15_polygon(3.125)),
+        ("C15_v3", get_c15_polygon(6.25)),
         # Row 2: A15 offsets 0.0, L/8 (3.125), L/4 (6.25)
-        ("A15_v1", render_polygon_to_image(get_a15_polygon(0.0), 750)),
-        ("A15_v2", render_polygon_to_image(get_a15_polygon(3.125), 750)),
-        ("A15_v3", render_polygon_to_image(get_a15_polygon(6.25), 750)),
+        ("A15_v1", get_a15_polygon(0.0)),
+        ("A15_v2", get_a15_polygon(3.125)),
+        ("A15_v3", get_a15_polygon(6.25)),
     ]
-    save_black_and_blue_variants(
+    save_all_variants(
         title_text="C15/A15",
-        black_items=items,
+        poly_items=poly_items,
         layout_rows=[3, 3],
         coaster_size_px=482,
         default_label_size=44,
         pad_above=12,
         stem_name="c15_a15_previews",
+        render_dim=750,
     )
 
 
 def make_voroni_figure():
     print("Building 'Voroni' deliverable figures (D=482px, 10% side margins, pitch=1.2xD)...")
-    items = [
+    poly_items = [
         # Row 1: Dense (small_v1, small_v2, small_v3)
-        ("small_v1", render_polygon_to_image(get_voronoi_polygon(100, 42), 750)),
-        ("small_v2", render_polygon_to_image(get_voronoi_polygon(100, 43), 750)),
-        ("small_v3", render_polygon_to_image(get_voronoi_polygon(100, 44), 750)),
+        ("small_v1", get_voronoi_polygon(100, 42)),
+        ("small_v2", get_voronoi_polygon(100, 43)),
+        ("small_v3", get_voronoi_polygon(100, 44)),
         # Row 2: Sparse (large_v1, large_v2, large_v3; dropping large_v4)
-        ("large_v1", render_polygon_to_image(get_voronoi_polygon(50, 42), 750)),
-        ("large_v2", render_polygon_to_image(get_voronoi_polygon(50, 43), 750)),
-        ("large_v3", render_polygon_to_image(get_voronoi_polygon(50, 44), 750)),
+        ("large_v1", get_voronoi_polygon(50, 42)),
+        ("large_v2", get_voronoi_polygon(50, 43)),
+        ("large_v3", get_voronoi_polygon(50, 44)),
     ]
-    save_black_and_blue_variants(
+    save_all_variants(
         title_text="Voroni",
-        black_items=items,
+        poly_items=poly_items,
         layout_rows=[3, 3],
         coaster_size_px=482,
         default_label_size=44,
         pad_above=12,
         stem_name="voroni_previews",
+        render_dim=750,
     )
 
 
 def make_explicit_figure():
     print("Building 'Explicit' deliverable figures (9 coasters, 3x3 grid, D=390px, pitch=1.2xD)...")
-    items = [
+    poly_items = [
         # Row 1: Triangle Top 3
-        ("Tri_Tetrahedral", render_polygon_to_image(get_tri_polygon("Tetrahedral"), 650)),
-        ("Tri_Icosahedral", render_polygon_to_image(get_tri_polygon("Icosahedral"), 650)),
-        ("Tri_Kelvin", render_polygon_to_image(get_tri_polygon("Kelvin"), 650)),
+        ("Tri_Tetrahedral", get_tri_polygon("Tetrahedral")),
+        ("Tri_Icosahedral", get_tri_polygon("Icosahedral")),
+        ("Tri_Kelvin", get_tri_polygon("Kelvin")),
         # Row 2: Triangle Remaining 2 + Square 1
-        ("Tri_Tesseract", render_polygon_to_image(get_tri_polygon("Tesseract"), 650)),
-        ("Tri_Rhombic", render_polygon_to_image(get_tri_polygon("Rhombic"), 650)),
-        ("Sq_Grid", render_polygon_to_image(get_sq_polygon("Grid"), 650)),
+        ("Tri_Tesseract", get_tri_polygon("Tesseract")),
+        ("Tri_Rhombic", get_tri_polygon("Rhombic")),
+        ("Sq_Grid", get_sq_polygon("Grid")),
         # Row 3: Square Remaining 3
-        ("Sq_Icosahedral", render_polygon_to_image(get_sq_polygon("Icosahedral"), 650)),
-        ("Sq_Kelvin", render_polygon_to_image(get_sq_polygon("Kelvin"), 650)),
-        ("Sq_Tesseract", render_polygon_to_image(get_sq_polygon("Tesseract"), 650)),
+        ("Sq_Icosahedral", get_sq_polygon("Icosahedral")),
+        ("Sq_Kelvin", get_sq_polygon("Kelvin")),
+        ("Sq_Tesseract", get_sq_polygon("Tesseract")),
     ]
-    save_black_and_blue_variants(
+    save_all_variants(
         title_text="Explicit",
-        black_items=items,
+        poly_items=poly_items,
         layout_rows=[3, 3, 3],
         coaster_size_px=390,
         default_label_size=34,
         pad_above=10,
         stem_name="explicit_previews",
+        render_dim=650,
     )
 
 
 def make_tpms_figure():
     print("Building 'TPMS' deliverable figures (8 coasters, 3 rows, D=360px, pitch=1.2xD)...")
-    items = [
+    poly_items = [
         # Row 1: Z = 0
-        ("Gyroid (Z=0)", get_tpms_image("Gyroid", 0.0, 360)),
-        ("Diamond (Z=0)", get_tpms_image("Diamond", 0.0, 360)),
-        ("Lidinoid (Z=0)", get_tpms_image("Lidinoid", 0.0, 360)),
+        ("Gyroid (Z=0)", get_tpms_polygon("Gyroid", 0.0)),
+        ("Diamond (Z=0)", get_tpms_polygon("Diamond", 0.0)),
+        ("Lidinoid (Z=0)", get_tpms_polygon("Lidinoid", 0.0)),
         # Row 2: Neovius Z=0 and Z=2.4 centered
-        ("Neovius (Z=0)", get_tpms_image("Neovius", 0.0, 360)),
-        ("Neovius (Z=2.4)", get_tpms_image("Neovius", 2.4, 360)),
+        ("Neovius (Z=0)", get_tpms_polygon("Neovius", 0.0)),
+        ("Neovius (Z=2.4)", get_tpms_polygon("Neovius", 2.4)),
         # Row 3: Z = 2.4
-        ("Gyroid (Z=2.4)", get_tpms_image("Gyroid", 2.4, 360)),
-        ("Diamond (Z=2.4)", get_tpms_image("Diamond", 2.4, 360)),
-        ("Lidinoid (Z=2.4)", get_tpms_image("Lidinoid", 2.4, 360)),
+        ("Gyroid (Z=2.4)", get_tpms_polygon("Gyroid", 2.4)),
+        ("Diamond (Z=2.4)", get_tpms_polygon("Diamond", 2.4)),
+        ("Lidinoid (Z=2.4)", get_tpms_polygon("Lidinoid", 2.4)),
     ]
-    save_black_and_blue_variants(
+    save_all_variants(
         title_text="TPMS",
-        black_items=items,
+        poly_items=poly_items,
         layout_rows=[3, 2, 3],
         coaster_size_px=360,
         default_label_size=34,
         pad_above=10,
         stem_name="tpms_previews",
+        render_dim=600,
     )
 
 
@@ -720,13 +772,13 @@ def clean_obsolete_figures():
 
 
 def main():
-    print("Generating all 4 combined deliverable figures (Black & Blue #1e3a8a versions)...")
+    print("Generating all 4 combined deliverable figures (Black, Lighter Blue, and #1e3a8a Outline versions)...")
     make_c15_a15_figure()
     make_voroni_figure()
     make_explicit_figure()
     make_tpms_figure()
     clean_obsolete_figures()
-    print("All combined figures (Black and Blue) generated successfully!")
+    print("All combined figures generated successfully!")
 
 
 if __name__ == "__main__":
