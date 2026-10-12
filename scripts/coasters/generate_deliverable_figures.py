@@ -603,6 +603,7 @@ def save_all_variants(
     pad_above,
     stem_name,
     render_dim=750,
+    outline_linewidth=1.8,
 ):
     """Save Black (#141416), Lighter Blue (#3b66b0), and Blue Outline (#1e3a8a) deliverable figures."""
     # 1. Black solid variant (#141416)
@@ -633,9 +634,9 @@ def save_all_variants(
     canvas_blue.save(out_blue, quality=95)
     print(f"  Saved (Blue):    {out_blue}")
 
-    # 3. Blue Outline variant (#1e3a8a, original outline style with slightly thicker lines)
+    # 3. Blue Outline variant (#1e3a8a, original outline style)
     outline_items = [
-        (label, render_polygon_outline_to_image(poly, coaster_size_px, "#1e3a8a", linewidth=1.8))
+        (label, render_polygon_outline_to_image(poly, coaster_size_px, "#1e3a8a", linewidth=outline_linewidth))
         for label, poly in poly_items
     ]
     canvas_outline = compose_deliverable_canvas(
@@ -672,6 +673,7 @@ def make_c15_a15_figure():
         pad_above=12,
         stem_name="c15_a15_previews",
         render_dim=750,
+        outline_linewidth=1.8,
     )
 
 
@@ -696,6 +698,7 @@ def make_voroni_figure():
         pad_above=12,
         stem_name="voroni_previews",
         render_dim=750,
+        outline_linewidth=1.8,
     )
 
 
@@ -724,6 +727,7 @@ def make_explicit_figure():
         pad_above=10,
         stem_name="explicit_previews",
         render_dim=650,
+        outline_linewidth=1.8,
     )
 
 
@@ -751,6 +755,7 @@ def make_tpms_figure():
         pad_above=10,
         stem_name="tpms_previews",
         render_dim=600,
+        outline_linewidth=2.5,
     )
 
 
