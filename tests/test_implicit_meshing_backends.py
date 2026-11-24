@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -38,6 +39,17 @@ def test_pyvista_backend_parity_or_fallback() -> None:
     if res.backend_used == "marching_cubes":
         assert res.fallback_used
         assert res.fallback_reason is not None
+
+
+def test_default_backend_is_flying_edges() -> None:
+    sig = inspect.signature(extract_isosurface)
+    assert sig.parameters["backend"].default == "pyvista_flying_edges"
+
+    field, spacing, origin = _sphere_field()
+    res = extract_isosurface(field, spacing=spacing, origin=origin)
+    assert res.backend_used == "pyvista_flying_edges"
+    assert not res.fallback_used
+    assert len(res.mesh.faces) > 0
 
 
 def test_enforce_watertight_does_not_crash() -> None:

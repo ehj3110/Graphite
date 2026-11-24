@@ -1,0 +1,15 @@
+# Minimal runtime dependencies for Graphite Implicit Studio
+# Install into a dedicated lab workstation venv via:
+#   pip install -r requirements-implicit-studio.txt
+numpy>=1.26
+scipy>=1.12
+trimesh>=4.4
+manifold3d>=3.0
+PySide6>=6.7
+vtk>=9.3
+Pillow>=10.0
+networkx>=3.2
+PyYAML>=6.0
+
+# Optional: native .3MF container export in mesh_export
+# lxml>=5.0

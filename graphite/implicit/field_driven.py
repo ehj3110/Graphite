@@ -14,9 +14,10 @@ from pathlib import Path
 import numpy as np
 import trimesh
 from graphite.geometry.masking import voxelize_mesh_and_edt
+from graphite.implicit.blending import blend_lattice_with_skin
 from graphite.implicit.density_control import tau_from_wall_thickness_mm
 from graphite.io.mesh_export import export_mesh
-from graphite.math.boolean import smooth_max, smooth_min
+from graphite.math.boolean import smooth_max
 from graphite.math.tpms import calculate_integrated_phase, evaluate_tpms_phase
 from graphite.mesh.extraction import extract_isosurface_flying_edges
 
@@ -741,23 +742,26 @@ def generate_field_driven_lattice(
         calibrate_solid_fraction=calibrate_solid_fraction,
     )
 
-    core_sdf = np.maximum(np.abs(F) - tau_grid, cad_sdf)
-    if blend_radius > 0.0:
-        skin_sdf = smooth_max(
-            cad_sdf, -cad_sdf - float(shell_thickness), r=blend_radius, method=blend_method
-        )
-    else:
-        skin_sdf = np.maximum(cad_sdf, -cad_sdf - float(shell_thickness))
+    lattice_field = np.abs(F) - tau_grid
     mode = str(export_mode).lower()
     if mode == "core":
-        final_field = core_sdf
+        final_field = np.maximum(lattice_field, cad_sdf)
     elif mode == "skin":
-        final_field = skin_sdf
-    elif mode == "combined":
+        inner_skin = -cad_sdf - float(shell_thickness)
         if blend_radius > 0.0:
-            final_field = smooth_min(core_sdf, skin_sdf, r=blend_radius, method=blend_method)
+            final_field = smooth_max(
+                cad_sdf, inner_skin, r=blend_radius, method=blend_method
+            )
         else:
-            final_field = np.minimum(core_sdf, skin_sdf)
+            final_field = np.maximum(cad_sdf, inner_skin)
+    elif mode == "combined":
+        final_field = blend_lattice_with_skin(
+            lattice_field,
+            cad_sdf,
+            skin_thickness=float(shell_thickness),
+            blend_radius=float(blend_radius),
+            method=blend_method,
+        )
     else:
         raise ValueError("export_mode must be 'core', 'skin', or 'combined'")
 

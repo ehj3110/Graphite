@@ -14,16 +14,61 @@ from typing import Sequence
 
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
 
 logger = logging.getLogger(__name__)
+
+
+def extract_with_vtk_flying_edges(
+    field_f32: np.ndarray,
+    origin_tuple: tuple[float, float, float],
+    spacing_tuple: tuple[float, float, float],
+    level_f: float = 0.0,
+) -> trimesh.Trimesh:
+    """Extract an isosurface directly via native VTK ``vtkFlyingEdges3D``."""
+    import vtk
+    from vtk.util import numpy_support
+
+    nx, ny, nz = field_f32.shape
+    img = vtk.vtkImageData()
+    img.SetDimensions(nx, ny, nz)
+    img.SetSpacing(*spacing_tuple)
+    img.SetOrigin(*origin_tuple)
+    vtk_arr = numpy_support.numpy_to_vtk(
+        np.ascontiguousarray(field_f32.ravel(order="F"), dtype=np.float32), deep=True
+    )
+    vtk_arr.SetName("values")
+    img.GetPointData().SetScalars(vtk_arr)
+
+    fe = vtk.vtkFlyingEdges3D()
+    fe.SetInputData(img)
+    fe.SetValue(0, float(level_f))
+    fe.ComputeNormalsOff()
+    fe.Update()
+
+    poly = fe.GetOutput()
+    if poly is None or poly.GetNumberOfPoints() == 0 or poly.GetNumberOfCells() == 0:
+        return trimesh.Trimesh()
+
+    tri_filter = vtk.vtkTriangleFilter()
+    tri_filter.SetInputData(poly)
+    tri_filter.Update()
+    tri = tri_filter.GetOutput()
+    if tri is None or tri.GetNumberOfCells() == 0:
+        return trimesh.Trimesh()
+
+    pts = numpy_support.vtk_to_numpy(tri.GetPoints().GetData()).astype(np.float64)
+    conn = numpy_support.vtk_to_numpy(tri.GetPolys().GetData())
+    faces = conn.reshape(-1, 4)[:, 1:4].astype(np.int64)
+    mesh = trimesh.Trimesh(vertices=pts, faces=faces, process=True)
+    return _postprocess_extracted_mesh(mesh)
 
 
 def _postprocess_extracted_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """Clean topology, eliminate unreferenced elements, and orient normals outward."""
     mesh.remove_unreferenced_vertices()
     mesh.update_faces(mesh.unique_faces())
-    mesh.update_faces(mesh.nondegenerate_faces())
+    mesh.update_faces(mesh.nondegenerate_faces(height=1e-7))
+    mesh.remove_unreferenced_vertices()
     trimesh.repair.fix_normals(mesh)
     try:
         if float(mesh.volume) < 0.0:
@@ -122,30 +167,37 @@ def extract_isosurface_flying_edges(
         )
         return _postprocess_extracted_mesh(mesh)
 
-    except Exception as exc:
-        msg = (
-            f"Flying Edges extraction backend unavailable ({exc}); "
-            "falling back to skimage.measure.marching_cubes."
-        )
-        logger.warning(msg)
-        warnings.warn(msg, RuntimeWarning, stacklevel=2)
-
+    except Exception as pv_exc:
         try:
-            verts, faces, _normals, _values = marching_cubes(
-                field_f32,
-                level=level_f,
-                spacing=spacing_tuple,
+            return extract_with_vtk_flying_edges(
+                field_f32, origin_tuple, spacing_tuple, level_f
             )
-            verts[:, 0] += origin_tuple[0]
-            verts[:, 1] += origin_tuple[1]
-            verts[:, 2] += origin_tuple[2]
+        except Exception as vtk_exc:
+            msg = (
+                f"Flying Edges extraction backend unavailable (pv={pv_exc}, vtk={vtk_exc}); "
+                "falling back to skimage.measure.marching_cubes."
+            )
+            logger.warning(msg)
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
 
-            mesh = trimesh.Trimesh(
-                vertices=verts.astype(np.float64),
-                faces=faces.astype(np.int64),
-                process=True,
-            )
-            return _postprocess_extracted_mesh(mesh)
-        except RuntimeError:
-            # Marching cubes did not find any zero-crossing surface
-            return trimesh.Trimesh()
+            try:
+                from skimage.measure import marching_cubes
+
+                verts, faces, _normals, _values = marching_cubes(
+                    field_f32,
+                    level=level_f,
+                    spacing=spacing_tuple,
+                )
+                verts[:, 0] += origin_tuple[0]
+                verts[:, 1] += origin_tuple[1]
+                verts[:, 2] += origin_tuple[2]
+
+                mesh = trimesh.Trimesh(
+                    vertices=verts.astype(np.float64),
+                    faces=faces.astype(np.int64),
+                    process=True,
+                )
+                return _postprocess_extracted_mesh(mesh)
+            except RuntimeError:
+                # Marching cubes did not find any zero-crossing surface
+                return trimesh.Trimesh()

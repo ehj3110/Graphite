@@ -148,6 +148,35 @@ class TestLatticeSkinBlending:
         assert len(mesh.faces) > 0
         assert mesh.is_watertight
 
+    def test_blend_lattice_with_skin_no_exterior_ridges(self):
+        """Fillet blends only internally; exterior CAD surface stays flush without TPMS ridges."""
+        grid = np.linspace(-6.0, 6.0, 49)
+        X, Y, Z = np.meshgrid(grid, grid, grid, indexing="ij")
+        # Box SDF with half-extent 4.5 mm
+        cad_sdf = np.maximum.reduce([np.abs(X), np.abs(Y), np.abs(Z)]) - 4.5
+        # Gyroid-like sheet field whose zero-crossing intersects the box faces
+        gyroid = np.sin(1.3 * X) * np.cos(1.3 * Y) + np.sin(1.3 * Y) * np.cos(1.3 * Z) + np.sin(1.3 * Z) * np.cos(1.3 * X)
+        lattice_field = np.abs(gyroid) - 0.35
+
+        skin_t = 0.7
+        field_hard = blend_lattice_with_skin(
+            lattice_field, cad_sdf, skin_thickness=skin_t, blend_radius=0.0
+        )
+        field_smooth = blend_lattice_with_skin(
+            lattice_field, cad_sdf, skin_thickness=skin_t, blend_radius=0.45, method="polynomial"
+        )
+
+        # Outside CAD must stay strictly positive (no ~r/4 exterior ridges protruding through skin)
+        assert np.all(field_smooth[cad_sdf > 0.0] > 0.0)
+        # On the CAD outer boundary (cad_sdf == 0), zero-level must not dip negative
+        on_wall = np.isclose(cad_sdf, 0.0, atol=1e-9)
+        assert np.allclose(field_smooth[on_wall], 0.0, atol=1e-9)
+        # Internal fillet must still add material at inner skin-lattice junction
+        inner_skin = -cad_sdf - skin_t
+        junction = (cad_sdf < -0.25) & (np.abs(lattice_field) < 0.25) & (np.abs(inner_skin) < 0.25)
+        assert np.any(junction)
+        assert np.all(field_smooth[junction] < field_hard[junction])
+
 
 class TestConformalSpinodalBlending:
     """Test smooth Boolean integration in conformal spinodal lattice generation."""
@@ -169,3 +198,32 @@ class TestConformalSpinodalBlending:
         assert not mesh.is_empty
         assert len(mesh.faces) > 0
         assert mesh.is_watertight
+
+    def test_blend_lattice_with_skin_no_exterior_ridges(self):
+        """Fillet blends only internally; exterior CAD surface stays flush without TPMS ridges."""
+        grid = np.linspace(-6.0, 6.0, 49)
+        X, Y, Z = np.meshgrid(grid, grid, grid, indexing="ij")
+        # Box SDF with half-extent 4.5 mm
+        cad_sdf = np.maximum.reduce([np.abs(X), np.abs(Y), np.abs(Z)]) - 4.5
+        # Gyroid-like sheet field whose zero-crossing intersects the box faces
+        gyroid = np.sin(1.3 * X) * np.cos(1.3 * Y) + np.sin(1.3 * Y) * np.cos(1.3 * Z) + np.sin(1.3 * Z) * np.cos(1.3 * X)
+        lattice_field = np.abs(gyroid) - 0.35
+
+        skin_t = 0.7
+        field_hard = blend_lattice_with_skin(
+            lattice_field, cad_sdf, skin_thickness=skin_t, blend_radius=0.0
+        )
+        field_smooth = blend_lattice_with_skin(
+            lattice_field, cad_sdf, skin_thickness=skin_t, blend_radius=0.45, method="polynomial"
+        )
+
+        # Outside CAD must stay strictly positive (no ~r/4 exterior ridges protruding through skin)
+        assert np.all(field_smooth[cad_sdf > 0.0] > 0.0)
+        # On the CAD outer boundary (cad_sdf == 0), zero-level must not dip negative
+        on_wall = np.isclose(cad_sdf, 0.0, atol=1e-9)
+        assert np.allclose(field_smooth[on_wall], 0.0, atol=1e-9)
+        # Internal fillet must still add material at inner skin-lattice junction
+        inner_skin = -cad_sdf - skin_t
+        junction = (cad_sdf < -0.25) & (np.abs(lattice_field) < 0.25) & (np.abs(inner_skin) < 0.25)
+        assert np.any(junction)
+        assert np.all(field_smooth[junction] < field_hard[junction])

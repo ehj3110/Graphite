@@ -24,6 +24,8 @@ def blend_lattice_with_skin(
     skin_thickness: float,
     blend_radius: float = 0.0,
     method: str = "polynomial",
+    *,
+    inner_skin_field: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Smoothly blend an interior implicit lattice field with an exterior CAD skin.
@@ -37,11 +39,15 @@ def blend_lattice_with_skin(
     skin_thickness : float
         Physical thickness of the solid outer skin in mm. Must be >= 0.
     blend_radius : float, optional
-        Radius of the smooth fillet at the lattice-skin junction in mm.
+        Radius of the smooth fillet at the internal lattice-skin junction in mm.
+        Applied only internally so the outer skin remains flush at ``cad_sdf == 0``.
         Default is 0.0 (sharp Boolean).
     method : str, optional
         Smooth blending formulation: 'polynomial', 'circular', or 'exponential'.
         Default is "polynomial".
+    inner_skin_field : np.ndarray, optional
+        Optional signed distance field for the inner wall of a partial/localized skin
+        (solid skin is ``<= 0``). When omitted, defaults to ``-cad_sdf - skin_thickness``.
 
     Returns
     -------
@@ -57,26 +63,20 @@ def blend_lattice_with_skin(
     if blend_radius < 0.0:
         raise ValueError(f"blend_radius must be non-negative, got {blend_radius}")
 
-    # Clip lattice inside CAD volume
-    if blend_radius > 0.0:
-        core_sdf = smooth_max(lattice_field, cad_sdf, r=blend_radius, method=method)
-    else:
-        core_sdf = np.maximum(lattice_field, cad_sdf)
-
     if skin_thickness <= 0.0:
-        return core_sdf
+        if blend_radius > 0.0:
+            return smooth_max(lattice_field, cad_sdf, r=blend_radius, method=method)
+        return np.maximum(lattice_field, cad_sdf)
 
-    # Exterior skin definition: cad_sdf <= 0 AND distance_from_surface <= skin_thickness
-    # In EDT distance: cad_sdf <= 0 and -cad_sdf <= skin_thickness  <=>  -cad_sdf - skin_thickness <= 0
+    # Fillet only the internal skin-to-lattice interface, then cap cleanly at cad_sdf
+    # so smooth_min cannot bulge lattice ribs outward through the exterior CAD wall.
+    inner_skin = -cad_sdf - skin_thickness if inner_skin_field is None else inner_skin_field
     if blend_radius > 0.0:
-        skin_sdf = smooth_max(
-            cad_sdf, -cad_sdf - skin_thickness, r=blend_radius, method=method
-        )
-        # Union core and skin with smooth fillet
-        return smooth_min(core_sdf, skin_sdf, r=blend_radius, method=method)
+        interior_union = smooth_min(lattice_field, inner_skin, r=blend_radius, method=method)
     else:
-        skin_sdf = np.maximum(cad_sdf, -cad_sdf - skin_thickness)
-        return np.minimum(core_sdf, skin_sdf)
+        interior_union = np.minimum(lattice_field, inner_skin)
+
+    return np.maximum(interior_union, cad_sdf)
 
 
 def compute_transition_weights(

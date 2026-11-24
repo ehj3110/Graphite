@@ -13,7 +13,10 @@ import time
 
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
+try:
+    from skimage.measure import marching_cubes
+except ImportError:  # pragma: no cover - optional when VTK Flying Edges is present
+    marching_cubes = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -92,13 +95,23 @@ def extract_isosurface_from_image_data(
     try:
         import pyvista as pv
     except Exception as exc:  # pragma: no cover - depends on local environment
-        raise RuntimeError("pyvista is required for pyvista_flying_edges backend") from exc
+        from graphite.mesh.extraction import extract_with_vtk_flying_edges
+
+        vtk_mesh = extract_with_vtk_flying_edges(
+            np.ascontiguousarray(field, dtype=np.float32),
+            (float(origin[0]), float(origin[1]), float(origin[2])),
+            (float(spacing[0]), float(spacing[1]), float(spacing[2])),
+            float(level),
+        )
+        if len(vtk_mesh.vertices) == 0 or len(vtk_mesh.faces) == 0:
+            raise RuntimeError("vtk flying edges returned empty surface") from exc
+        return vtk_mesh
 
     nx, ny, nz = field.shape
     img = pv.ImageData(dimensions=(nx, ny, nz), spacing=spacing, origin=origin)
     # VTK expects Fortran order flattening for point_data in image grids.
     img.point_data["values"] = np.asarray(field, dtype=np.float32).ravel(order="F")
-    surf = img.contour(isosurfaces=[float(level)], scalars="values")
+    surf = img.contour(isosurfaces=[float(level)], scalars="values", method="flying_edges")
     if surf.n_points == 0 or surf.n_cells == 0:
         raise RuntimeError("pyvista contour returned empty surface")
     tri = surf.extract_surface(algorithm="geometry").triangulate()
